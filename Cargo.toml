@@ -1,0 +1,11 @@
+[package]
+name = "cable"
+version = "1.0.0"
+authors = [""]
+edition = "2018"
+
+[dependencies]
+sodiumoxide = "0.2.6"
+leveldb = "0.8.6"
+desert = "1.0.3"
+failure = "0.1.8"
