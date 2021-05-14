@@ -1,7 +1,9 @@
+#![feature(backtrace)]
 pub type ReqID = [u8;4];
 pub type Hash = [u8;32];
 pub type Payload = Vec<u8>;
 pub type Channel = Vec<u8>;
+pub type Error = Box<dyn std::error::Error+Send+Sync>;
 
 /*
 use async_std::{prelude::*,sync::Arc,io,fs::File};
@@ -17,7 +19,7 @@ pub use message::*;
 mod post;
 pub use post::*;
 
-mod varint;
+mod error;
 
 //type Error = Box<dyn std::error::Error+Send+Sync>;
 

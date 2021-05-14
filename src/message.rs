@@ -1,5 +1,5 @@
-use desert::{FromBytes,ToBytes,CountBytes};
-use crate::{varint,ReqID,Hash,Payload,Channel};
+use desert::{FromBytes,ToBytes,CountBytes,varint};
+use crate::{ReqID,Hash,Payload,Channel,Error,error::CableErrorKind as E};
 
 pub enum Message {
   HashResponse {
@@ -77,20 +77,20 @@ impl CountBytes for Message {
     };
     varint::length(size as u64) + size
   }
-  fn count_from_bytes(buf: &[u8]) -> Result<usize,failure::Error> {
-    if buf.is_empty() { failure::bail!["empty message"] }
+  fn count_from_bytes(buf: &[u8]) -> Result<usize,Error> {
+    if buf.is_empty() { return E::MessageEmpty {}.raise() }
     let (s,msg_len) = varint::decode(buf)?;
     Ok(s + (msg_len as usize))
   }
 }
 
 impl ToBytes for Message {
-  fn to_bytes(&self) -> Result<Vec<u8>,failure::Error> {
+  fn to_bytes(&self) -> Result<Vec<u8>,Error> {
     let mut buf = vec![0;self.count_bytes()];
     self.write_bytes(&mut buf)?;
     Ok(buf)
   }
-  fn write_bytes(&self, buf: &mut [u8]) -> Result<usize,failure::Error> {
+  fn write_bytes(&self, buf: &mut [u8]) -> Result<usize,Error> {
     let mut offset = 0;
     let msg_len = self.count_bytes();
     offset += varint::encode(msg_len as u64, &mut buf[offset..])?;
@@ -103,7 +103,7 @@ impl ToBytes for Message {
       Self::ChannelStateRequest { .. } => 5,
       Self::ChannelListRequest { .. } => 6,
       Self::Unrecognized { msg_type } => {
-        failure::bail!["cannot write unrecognized msg_type={}", msg_type]
+        return E::MessageWriteUnrecognizedType { msg_type: *msg_type }.raise()
       },
     };
     offset += varint::encode(msg_type, &mut buf[offset..])?;
@@ -112,7 +112,12 @@ impl ToBytes for Message {
         offset += req_id.write_bytes(&mut buf[offset..])?;
         offset += varint::encode(hashes.len() as u64, &mut buf[offset..])?;
         for hash in hashes.iter() {
-          if offset+hash.len() >= buf.len() { failure::bail!["destination buffer too small"] }
+          if offset+hash.len() >= buf.len() {
+            return E::DstTooSmall {
+              required: offset+hash.len(),
+              provided: buf.len(),
+            }.raise();
+          }
           buf[offset..].copy_from_slice(hash);
           offset += hash.len();
         }
@@ -122,7 +127,12 @@ impl ToBytes for Message {
         offset += req_id.write_bytes(&mut buf[offset..])?;
         for d in data.iter() {
           offset += varint::encode(d.len() as u64, &mut buf[offset..])?;
-          if offset+d.len() >= buf.len() { failure::bail!["destination buffer too small"] }
+          if offset+d.len() >= buf.len() {
+            return E::DstTooSmall {
+              required: offset+d.len(),
+              provided: buf.len(),
+            }.raise();
+          }
           buf[offset..].copy_from_slice(d);
         }
         offset += varint::encode(0, &mut buf[offset..])?;
@@ -133,7 +143,12 @@ impl ToBytes for Message {
         offset += varint::encode(*ttl as u64, &mut buf[offset..])?;
         offset += varint::encode(hashes.len() as u64, &mut buf[offset..])?;
         for hash in hashes.iter() {
-          if offset+hash.len() >= buf.len() { failure::bail!["destination buffer too small"] }
+          if offset+hash.len() >= buf.len() {
+            return E::DstTooSmall {
+              required: offset+hash.len(),
+              provided: buf.len(),
+            }.raise();
+          }
           buf[offset..].copy_from_slice(hash);
           offset += hash.len();
         }
@@ -147,7 +162,12 @@ impl ToBytes for Message {
         offset += req_id.write_bytes(&mut buf[offset..])?;
         offset += varint::encode(*ttl as u64, &mut buf[offset..])?;
         offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
-        if offset+channel.len() >= buf.len() { failure::bail!["destination buffer too small"] }
+        if offset+channel.len() >= buf.len() {
+          return E::DstTooSmall {
+            required: offset+channel.len(),
+            provided: buf.len(),
+          }.raise();
+        }
         offset += channel.write_bytes(&mut buf[offset..])?;
         offset += varint::encode(*time_start, &mut buf[offset..])?;
         offset += varint::encode(*time_end, &mut buf[offset..])?;
@@ -158,7 +178,12 @@ impl ToBytes for Message {
         offset += req_id.write_bytes(&mut buf[offset..])?;
         offset += varint::encode(*ttl as u64, &mut buf[offset..])?;
         offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
-        if offset+channel.len() >= buf.len() { failure::bail!["destination buffer too small"] }
+        if offset+channel.len() >= buf.len() {
+          return E::DstTooSmall {
+            required: offset+channel.len(),
+            provided: buf.len(),
+          }.raise();
+        }
         offset += channel.write_bytes(&mut buf[offset..])?;
         offset += varint::encode(*limit as u64, &mut buf[offset..])?;
         offset += varint::encode(*updates as u64, &mut buf[offset..])?;
@@ -171,15 +196,15 @@ impl ToBytes for Message {
         offset
       },
       Self::Unrecognized { msg_type } => {
-        failure::bail!["cannot write unrecognized msg_type={}", msg_type]
+        return E::MessageWriteUnrecognizedType { msg_type: *msg_type }.raise();
       }
     })
   }
 }
 
 impl FromBytes for Message {
-  fn from_bytes(buf: &[u8]) -> Result<(usize,Self),failure::Error> {
-    if buf.is_empty() { failure::bail!["empty message"] }
+  fn from_bytes(buf: &[u8]) -> Result<(usize,Self),Error> {
+    if buf.is_empty() { return E::MessageEmpty {}.raise() }
     let mut offset = 0;
     let (s,msg_len) = varint::decode(&buf[offset..])?;
     offset += s;
@@ -187,7 +212,7 @@ impl FromBytes for Message {
     offset += s;
     Ok(match msg_type {
       0 => {
-        if offset+4 >= buf.len() { failure::bail!["unexpected end of HashResponse"] }
+        if offset+4 >= buf.len() { return E::MessageHashResponseEnd {}.raise() }
         let mut req_id = [0;4];
         req_id.copy_from_slice(&buf[offset..offset+4]);
         offset += 4;
@@ -195,9 +220,7 @@ impl FromBytes for Message {
         offset += s;
         let mut hashes = Vec::with_capacity(hash_count as usize);
         for _ in 0..hash_count {
-          if offset+32 >= buf.len() {
-            failure::bail!["unexpected end of HashResponse"]
-          }
+          if offset+32 >= buf.len() { return E::MessageHashResponseEnd {}.raise() }
           let mut hash = [0;32];
           hash.copy_from_slice(&buf[offset..offset+32]);
           offset += 32;
@@ -206,7 +229,7 @@ impl FromBytes for Message {
         (msg_len as usize, Self::HashResponse { req_id, hashes })
       },
       1 => {
-        if offset+4 >= buf.len() { failure::bail!["unexpected end of DataResponse"] }
+        if offset+4 >= buf.len() { return E::MessageDataResponseEnd {}.raise() }
         let mut req_id = [0;4];
         req_id.copy_from_slice(&buf[offset..offset+4]);
         offset += 4;
@@ -220,7 +243,7 @@ impl FromBytes for Message {
         (msg_len as usize, Self::DataResponse { req_id, data })
       },
       2 => {
-        if offset+4 >= buf.len() { failure::bail!["unexpected end of HashRequest"] }
+        if offset+4 >= buf.len() { return E::MessageHashRequestEnd {}.raise() }
         let mut req_id = [0;4];
         req_id.copy_from_slice(&buf[offset..offset+4]);
         offset += 4;
@@ -230,7 +253,7 @@ impl FromBytes for Message {
         offset += s;
         let mut hashes = Vec::with_capacity(hash_count as usize);
         for _ in 0..hash_count {
-          if offset+32 >= buf.len() { failure::bail!["unexpected end of HashRequest"] }
+          if offset+32 >= buf.len() { return E::MessageHashRequestEnd {}.raise() }
           let mut hash = [0;32];
           hash.copy_from_slice(&buf[offset..offset+32]);
           offset += 32;
@@ -239,13 +262,13 @@ impl FromBytes for Message {
         (msg_len as usize, Self::HashRequest { req_id, ttl: ttl as usize, hashes })
       },
       3 => {
-        if offset+4 >= buf.len() { failure::bail!["unexpected end of CancelRequest"] }
+        if offset+4 >= buf.len() { return E::MessageCancelRequestEnd {}.raise() }
         let mut req_id = [0;4];
         req_id.copy_from_slice(&buf[offset..offset+4]);
         (msg_len as usize, Self::CancelRequest { req_id })
       },
       4 => {
-        if offset+4 >= buf.len() { failure::bail!["unexpected end of ChannelTimeRangeRequest"] }
+        if offset+4 >= buf.len() { return E::MessageChannelTimeRangeRequestEnd {}.raise() }
         let mut req_id = [0;4];
         req_id.copy_from_slice(&buf[offset..offset+4]);
         offset += 4;
@@ -266,7 +289,7 @@ impl FromBytes for Message {
         })
       },
       5 => {
-        if offset+4 >= buf.len() { failure::bail!["unexpected end of ChannelStateRequest"] }
+        if offset+4 >= buf.len() { return E::MessageChannelStateRequestEnd {}.raise() }
         let mut req_id = [0;4];
         req_id.copy_from_slice(&buf[offset..offset+4]);
         offset += 4;
@@ -284,7 +307,7 @@ impl FromBytes for Message {
         })
       },
       6 => {
-        if offset+4 >= buf.len() { failure::bail!["unexpected end of ChannelStateRequest"] }
+        if offset+4 >= buf.len() { return E::MessageChannelListRequestEnd {}.raise() }
         let mut req_id = [0;4];
         req_id.copy_from_slice(&buf[offset..offset+4]);
         offset += 4;

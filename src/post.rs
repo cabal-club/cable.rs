@@ -1,5 +1,5 @@
-use desert::{FromBytes,ToBytes,CountBytes};
-use crate::{Hash,Channel,varint};
+use desert::{FromBytes,ToBytes,CountBytes,varint};
+use crate::{Error,Hash,Channel,error::CableErrorKind as E};
 
 pub struct Post {
   header: PostHeader,
@@ -95,18 +95,18 @@ impl CountBytes for Post {
     };
     header_size + body_size
   }
-  fn count_from_bytes(_buf: &[u8]) -> Result<usize,failure::Error> {
+  fn count_from_bytes(_buf: &[u8]) -> Result<usize,Error> {
     unimplemented![]
   }
 }
 
 impl ToBytes for Post {
-  fn to_bytes(&self) -> Result<Vec<u8>,failure::Error> {
+  fn to_bytes(&self) -> Result<Vec<u8>,Error> {
     let mut buf = vec![0;self.count_bytes()];
     self.write_bytes(&mut buf)?;
     Ok(buf)
   }
-  fn write_bytes(&self, buf: &mut [u8]) -> Result<usize,failure::Error> {
+  fn write_bytes(&self, buf: &mut [u8]) -> Result<usize,Error> {
     let mut offset = 0;
     buf[offset..].copy_from_slice(&self.header.public_key);
     offset += self.header.public_key.len();
@@ -160,7 +160,7 @@ impl ToBytes for Post {
         offset += varint::encode(*timestamp, &mut buf[offset..])?;
       },
       PostBody::Unrecognized { post_type } => {
-        failure::bail!["cannot write unrecognized post_type={}", post_type];
+        return E::PostWriteUnrecognizedType { post_type: *post_type }.raise();
       },
     }
     Ok(offset)
@@ -168,7 +168,7 @@ impl ToBytes for Post {
 }
 
 impl FromBytes for Post {
-  fn from_bytes(buf: &[u8]) -> Result<(usize,Self),failure::Error> {
+  fn from_bytes(buf: &[u8]) -> Result<(usize,Self),Error> {
     let mut offset = 0;
     let header = {
       let mut public_key = [0;32];
