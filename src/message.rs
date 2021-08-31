@@ -1,6 +1,7 @@
 use desert::{FromBytes,ToBytes,CountBytes,varint};
 use crate::{ReqID,Hash,Payload,Channel,Error,error::CableErrorKind as E};
 
+#[derive(Clone,Debug)]
 pub enum Message {
   HashResponse {
     req_id: ReqID,

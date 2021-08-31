@@ -1,17 +1,20 @@
 use desert::{FromBytes,ToBytes,CountBytes,varint};
 use crate::{Error,Hash,Channel,error::CableErrorKind as E};
 
+#[derive(Clone,Debug)]
 pub struct Post {
   header: PostHeader,
   body: PostBody,
 }
 
+#[derive(Clone,Debug)]
 pub struct PostHeader {
   public_key: [u8;32],
   signature: [u8;64],
   link: [u8;32],
 }
 
+#[derive(Clone,Debug)]
 pub enum PostBody {
   Text {
     channel: Channel,
