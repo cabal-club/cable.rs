@@ -1,8 +1,8 @@
 #![feature(backtrace)]
 
-use async_std::{prelude::*,task,sync::{Arc,RwLock}};
+use async_std::{prelude::*,sync::{Arc,RwLock}};
 use futures::io::{AsyncRead,AsyncWrite};
-use desert::{varint,FromBytes};
+use desert::{FromBytes};
 use std::marker::Unpin;
 
 pub type ReqID = [u8;4];
@@ -19,7 +19,9 @@ mod store;
 pub use store::*;
 mod error;
 pub use error::*;
+use length_prefixed_stream::{decode_with_options,DecodeOptions};
 
+#[derive(Clone)]
 pub struct Cable<S: Store> {
   store: Arc<RwLock<Box<S>>>,
 }
@@ -28,38 +30,28 @@ impl<S> Cable<S> where S: Store {
   pub fn new(store: Box<S>) -> Self {
     Self { store: Arc::new(RwLock::new(store)) }
   }
-  pub fn connect<T: AsyncRead+AsyncWrite+Unpin+Send+'static>(&self, mut stream: Box<T>) {
-    // todo: do this properly with a streams impl or whatever
-    let store_c = self.store.clone();
-    task::spawn(async move {
-      let mut buf_offset = 0;
-      let mut buf = vec![0u8; 100*1024];
-      let mut o_msg_len = None;
-      loop {
-        let n = stream.read(&mut buf[buf_offset..]).await.unwrap();
-        if n == 0 { break }
-        if let Some((s,msg_len)) = o_msg_len {
-          if msg_len+s <= buf_offset+n {
-            Self::handle_buf(&buf[0..buf_offset+n], store_c.clone());
-          } else {
-            buf_offset += n;
-          }
-        }
-        if let Ok((s,msg_len)) = varint::decode(&buf[0..buf_offset+n]) {
-          o_msg_len = Some((s,msg_len as usize));
-          if msg_len as usize + s <= buf_offset+n {
-            Self::handle_buf(&buf[0..buf_offset+n], store_c.clone());
-          } else {
-            buf_offset += n;
-          }
-        } else {
-          buf_offset += n;
-        }
-      }
-    });
+  pub fn client(&self) -> Client<S> {
+    Client { cable: Arc::new(RwLock::new((*self).clone())) }
   }
-  fn handle_buf(buf: &[u8], _store: Arc<RwLock<Box<S>>>) {
-    let msg = Message::from_bytes(buf);
-    println!["msg={:?}", &msg];
+}
+
+#[derive(Clone)]
+pub struct Client<S: Store> {
+  cable: Arc<RwLock<Cable<S>>>,
+}
+
+impl<S> Client<S> where S: Store {
+  pub async fn listen<T>(&self, stream: T) -> Result<(),Error>
+  where T: AsyncRead+Unpin+Send+'static {
+    let mut options = DecodeOptions::default();
+    options.include_len = true;
+    let mut lps = decode_with_options(stream, options);
+    while let Some(rbuf) = lps.next().await {
+      let buf = rbuf?;
+      println!["buf={:?}", &buf];
+      let msg = Message::from_bytes(&buf);
+      println!["msg={:?}", &msg];
+    }
+    Ok(())
   }
 }

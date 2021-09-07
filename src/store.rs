@@ -1,6 +1,7 @@
-pub trait Store: Send+Sync+'static {
+pub trait Store: Clone+Send+Sync+Unpin+'static {
 }
 
+#[derive(Clone)]
 pub struct MemoryStore {
 }
 

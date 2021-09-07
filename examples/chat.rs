@@ -14,9 +14,12 @@ fn main() -> Result<(),Error> {
 
     let listener = TcpListener::bind("0.0.0.0:5000").await?;
     let mut incoming = listener.incoming();
-    while let Some(stream) = incoming.next().await {
-      let stream = stream?;
-      cable.connect(Box::new(stream));
+    while let Some(rstream) = incoming.next().await {
+      let stream = Box::new(rstream?);
+      let client = cable.client();
+      task::spawn_local(async move {
+        client.listen(stream).await.unwrap();
+      });
     }
     Ok(())
   })
