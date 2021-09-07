@@ -3,7 +3,6 @@
 use async_std::{prelude::*,sync::{Arc,RwLock}};
 use futures::io::{AsyncRead,AsyncWrite};
 use desert::{FromBytes};
-use std::marker::Unpin;
 
 pub type ReqID = [u8;4];
 pub type Hash = [u8;32];
@@ -41,11 +40,11 @@ pub struct Client<S: Store> {
 }
 
 impl<S> Client<S> where S: Store {
-  pub async fn listen<T>(&self, stream: T) -> Result<(),Error>
-  where T: AsyncRead+Unpin+Send+'static {
+  pub async fn listen<T>(&self, input: T) -> Result<(),Error>
+  where T: AsyncRead+Unpin+Send+Sync+'static {
     let mut options = DecodeOptions::default();
     options.include_len = true;
-    let mut lps = decode_with_options(stream, options);
+    let mut lps = decode_with_options(input, options);
     while let Some(rbuf) = lps.next().await {
       let buf = rbuf?;
       println!["buf={:?}", &buf];
