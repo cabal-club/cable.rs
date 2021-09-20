@@ -3,7 +3,6 @@
 use async_std::{prelude::*,sync::{Arc,RwLock}};
 use futures::io::AsyncRead;
 use desert::{ToBytes,FromBytes};
-use sodiumoxide::crypto;
 use std::convert::TryInto;
 
 pub type ReqID = [u8;4];
@@ -33,7 +32,8 @@ impl<S> Cable<S> where S: Store {
   }
   pub fn client(&self) -> Client<S> {
     Client {
-      cable: Arc::new(RwLock::new((*self).clone())),
+      //cable: Arc::new(RwLock::new((*self).clone())),
+      store: self.store.clone(),
       public_key: None,
     }
   }
@@ -41,7 +41,8 @@ impl<S> Cable<S> where S: Store {
 
 #[derive(Clone)]
 pub struct Client<S: Store> {
-  cable: Arc<RwLock<Cable<S>>>,
+  //cable: Arc<RwLock<Cable<S>>>,
+  store: Arc<RwLock<Box<S>>>,
   public_key: Option<[u8;32]>,
 }
 
@@ -51,11 +52,9 @@ impl<S> Client<S> where S: Store {
       .duration_since(std::time::UNIX_EPOCH)?.as_secs();
     self.post(Post {
       header: PostHeader {
-        public_key: self.get_public_key().await?[0..32].try_into()
-          .expect("invalid length for public_key"),
+        public_key: self.get_public_key().await?,
         signature: [0;64],
-        link: self.get_link(channel).await?[0..32].try_into()
-          .expect("invalid length for link"),
+        link: self.get_link(channel).await?,
       },
       body: PostBody::Text {
         channel: channel.to_vec(),
@@ -70,18 +69,19 @@ impl<S> Client<S> where S: Store {
       Post::sign(&mut bytes, &self.get_secret_key().await?)
     }
     // store in the db or something...
-    unimplemented![]
+    panic!["store in the db or something goes here"]
   }
-  pub async fn get_link(&self, channel: &[u8]) -> Result<Vec<u8>,Error> {
-    unimplemented![]
+  pub async fn get_link(&self, channel: &[u8]) -> Result<[u8;32],Error> {
+    let link = self.store.write().await.get_latest(channel).await?;
+    Ok(link)
   }
-  pub async fn get_public_key(&self) -> Result<Vec<u8>,Error> {
-    //let (pk, sk) = sign::gen_keypair();
-    unimplemented![]
+  pub async fn get_public_key(&self) -> Result<[u8;32],Error> {
+    let (pk,_sk) = self.store.write().await.get_or_create_keypair().await?;
+    Ok(pk)
   }
-  pub async fn get_secret_key(&self) -> Result<crypto::sign::SecretKey,Error> {
-    //let (pk, sk) = sign::gen_keypair();
-    unimplemented![]
+  pub async fn get_secret_key(&self) -> Result<[u8;64],Error> {
+    let (_pk,sk) = self.store.write().await.get_or_create_keypair().await?;
+    Ok(sk)
   }
   pub async fn listen<T>(&self, input: T) -> Result<(),Error>
   where T: AsyncRead+Unpin+Send+Sync+'static {
