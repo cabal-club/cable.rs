@@ -8,7 +8,7 @@ sodiumoxide = "0.2.7"
 desert = "2.0.0"
 async-std = { version = "1.10.0", features = ["attributes","unstable"] }
 futures = "0.3.12"
-length-prefixed-stream = { path = "../../length-prefixed-stream.rs" }
+length-prefixed-stream = "1.0.0"
 signature = "1.3.1"
 
 [dev-dependencies]
