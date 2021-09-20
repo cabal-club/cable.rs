@@ -13,12 +13,10 @@ fn main() -> Result<(),Error> {
         let stdin = io::stdin();
         let mut line = String::new();
         loop {
-          println!["read_line"];
-          stdin.read_line(&mut line);
+          stdin.read_line(&mut line).await.unwrap();
           if line.is_empty() { break }
-          println!["line={}", &line];
           let channel = "default".as_bytes();
-          let text = line.as_bytes();
+          let text = line.trim_end().as_bytes();
           client.post_text(channel, &text).await.unwrap();
         }
       });
