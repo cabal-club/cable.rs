@@ -1,17 +1,19 @@
 use desert::{FromBytes,ToBytes,CountBytes,varint};
 use crate::{Error,Hash,Channel,error::CableErrorKind as E};
+use sodiumoxide::crypto;
+use signature::Signature;
 
 #[derive(Clone,Debug)]
 pub struct Post {
-  header: PostHeader,
-  body: PostBody,
+  pub header: PostHeader,
+  pub body: PostBody,
 }
 
 #[derive(Clone,Debug)]
 pub struct PostHeader {
-  public_key: [u8;32],
-  signature: [u8;64],
-  link: [u8;32],
+  pub public_key: [u8;32],
+  pub signature: [u8;64],
+  pub link: [u8;32],
 }
 
 #[derive(Clone,Debug)]
@@ -62,6 +64,18 @@ impl Post {
   }
   pub fn verify(_buf: &[u8]) -> bool {
     unimplemented![]
+  }
+  pub fn sign(buf: &mut [u8], secret_key: &crypto::sign::SecretKey) {
+    let sig = crypto::sign::sign_detached(&buf[32+64..], secret_key);
+    buf[32..32+64].copy_from_slice(sig.as_bytes());
+  }
+  pub fn is_signed(&self) -> bool {
+    for i in 0..self.header.signature.len() {
+      if self.header.signature[i] != 0 {
+        return true;
+      }
+    }
+    return false;
   }
 }
 
