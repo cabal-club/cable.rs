@@ -65,8 +65,9 @@ impl Post {
   pub fn verify(_buf: &[u8]) -> bool {
     unimplemented![]
   }
-  pub fn sign(buf: &mut [u8], secret_key: &crypto::sign::SecretKey) {
-    let sig = crypto::sign::sign_detached(&buf[32+64..], secret_key);
+  pub fn sign(buf: &mut [u8], secret_key: &[u8;64]) {
+    let sk = crypto::sign::SecretKey::from_slice(secret_key).unwrap();
+    let sig = crypto::sign::sign_detached(&buf[32+64..], &sk);
     buf[32..32+64].copy_from_slice(sig.as_bytes());
   }
   pub fn is_signed(&self) -> bool {
@@ -125,54 +126,58 @@ impl ToBytes for Post {
   }
   fn write_bytes(&self, buf: &mut [u8]) -> Result<usize,Error> {
     let mut offset = 0;
-    buf[offset..].copy_from_slice(&self.header.public_key);
+    assert_eq![self.header.public_key.len(), 32];
+    assert_eq![self.header.signature.len(), 64];
+    assert_eq![self.header.link.len(), 32];
+    buf[offset..offset+32].copy_from_slice(&self.header.public_key);
     offset += self.header.public_key.len();
-    buf[offset..].copy_from_slice(&self.header.signature);
+    buf[offset..offset+64].copy_from_slice(&self.header.signature);
     offset += self.header.signature.len();
-    buf[offset..].copy_from_slice(&self.header.link);
+    buf[offset..offset+32].copy_from_slice(&self.header.link);
     offset += self.header.link.len();
-    offset += self.post_type().write_bytes(&mut buf[offset..])?;
+    offset += varint::encode(self.post_type(), &mut buf[offset..])?;
     match &self.body {
       PostBody::Text { channel, timestamp, text } => {
         offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
-        buf[offset..].copy_from_slice(channel);
+        buf[offset..offset+channel.len()].copy_from_slice(channel);
         offset += channel.len();
         offset += varint::encode(*timestamp, &mut buf[offset..])?;
         offset += varint::encode(text.len() as u64, &mut buf[offset..])?;
+        buf[offset..offset+text.len()].copy_from_slice(text);
         offset += text.len();
       },
       PostBody::Delete { timestamp, hash } => {
         offset += varint::encode(*timestamp, &mut buf[offset..])?;
-        buf[offset..].copy_from_slice(hash);
+        buf[offset..offset+hash.len()].copy_from_slice(hash);
         offset += hash.len();
       },
       PostBody::Info { timestamp, key, value } => {
         offset += varint::encode(*timestamp, &mut buf[offset..])?;
         offset += varint::encode(key.len() as u64, &mut buf[offset..])?;
-        buf[offset..].copy_from_slice(key);
+        buf[offset..offset+key.len()].copy_from_slice(key);
         offset += key.len();
         offset += varint::encode(value.len() as u64, &mut buf[offset..])?;
-        buf[offset..].copy_from_slice(value);
+        buf[offset..offset+value.len()].copy_from_slice(value);
         offset += value.len();
       },
       PostBody::Topic { channel, timestamp, topic } => {
         offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
-        buf[offset..].copy_from_slice(channel);
+        buf[offset..offset+channel.len()].copy_from_slice(channel);
         offset += channel.len();
         offset += varint::encode(*timestamp, &mut buf[offset..])?;
         offset += varint::encode(topic.len() as u64, &mut buf[offset..])?;
-        buf[offset..].copy_from_slice(topic);
+        buf[offset..offset+topic.len()].copy_from_slice(topic);
         offset += topic.len();
       },
       PostBody::Join { channel, timestamp } => {
         offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
-        buf[offset..].copy_from_slice(channel);
+        buf[offset..offset+channel.len()].copy_from_slice(channel);
         offset += channel.len();
         offset += varint::encode(*timestamp, &mut buf[offset..])?;
       },
       PostBody::Leave { channel, timestamp } => {
         offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
-        buf[offset..].copy_from_slice(channel);
+        buf[offset..offset+channel.len()].copy_from_slice(channel);
         offset += channel.len();
         offset += varint::encode(*timestamp, &mut buf[offset..])?;
       },
