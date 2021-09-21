@@ -1,7 +1,6 @@
 use desert::{FromBytes,ToBytes,CountBytes,varint};
 use crate::{Error,Hash,Channel,error::CableErrorKind as E};
 use sodiumoxide::crypto;
-use signature::Signature;
 
 #[derive(Clone,Debug)]
 pub struct Post {
@@ -65,10 +64,12 @@ impl Post {
   pub fn verify(_buf: &[u8]) -> bool {
     unimplemented![]
   }
-  pub fn sign(buf: &mut [u8], secret_key: &[u8;64]) {
+  pub fn sign(&mut self, secret_key: &[u8;64]) -> Result<(),Error> {
+    let buf = self.to_bytes()?;
     let sk = crypto::sign::SecretKey::from_slice(secret_key).unwrap();
-    let sig = crypto::sign::sign_detached(&buf[32+64..], &sk);
-    buf[32..32+64].copy_from_slice(sig.as_bytes());
+    // todo: return NoneError
+    self.header.signature = crypto::sign::sign_detached(&buf[32+64..], &sk).to_bytes();
+    Ok(())
   }
   pub fn is_signed(&self) -> bool {
     for i in 0..self.header.signature.len() {

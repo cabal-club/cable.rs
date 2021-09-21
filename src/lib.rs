@@ -2,8 +2,7 @@
 
 use async_std::{prelude::*,sync::{Arc,RwLock}};
 use futures::io::AsyncRead;
-use desert::{ToBytes,FromBytes};
-use std::convert::TryInto;
+use desert::FromBytes;
 
 pub type ReqID = [u8;4];
 pub type Hash = [u8;32];
@@ -63,13 +62,12 @@ impl<S> Client<S> where S: Store {
       }
     }).await
   }
-  pub async fn post(&self, post: Post) -> Result<(),Error> {
-    let mut bytes = post.to_bytes()?;
+  pub async fn post(&self, mut post: Post) -> Result<(),Error> {
     if !post.is_signed() {
-      Post::sign(&mut bytes, &self.get_secret_key().await?)
+      post.sign(&self.get_secret_key().await?);
     }
-    // store in the db or something...
-    panic!["store in the db or something goes here"]
+    self.store.write().await.insert_post(&post).await?;
+    Ok(())
   }
   pub async fn get_link(&self, channel: &[u8]) -> Result<[u8;32],Error> {
     let link = self.store.write().await.get_latest(channel).await?;

@@ -1,6 +1,7 @@
-use crate::Error;
+use crate::{Error,Post,PostBody};
 use sodiumoxide::crypto;
 use std::convert::TryInto;
+use std::collections::{HashMap,BTreeMap};
 pub type Keypair = ([u8;32],[u8;64]);
 
 #[async_trait::async_trait]
@@ -21,11 +22,13 @@ pub trait Store: Clone+Send+Sync+Unpin+'static {
     }
   }
   async fn get_latest(&mut self, channel: &[u8]) -> Result<[u8;32],Error>;
+  async fn insert_post(&mut self, post: &Post) -> Result<(),Error>;
 }
 
 #[derive(Clone)]
 pub struct MemoryStore {
   keypair: Keypair,
+  posts: HashMap<Vec<u8>,BTreeMap<u64,Post>>,
 }
 
 impl Default for MemoryStore {
@@ -36,6 +39,7 @@ impl Default for MemoryStore {
         pk.as_ref().try_into().unwrap(),
         sk.as_ref().try_into().unwrap()
       ),
+      posts: HashMap::new(),
     }
   }
 }
@@ -50,6 +54,22 @@ impl Store for MemoryStore {
     Ok(())
   }
   async fn get_latest(&mut self, channel: &[u8]) -> Result<[u8;32],Error> {
+    // todo: actually use latest message if available instead of zeros
     Ok([0;32])
+  }
+  async fn insert_post(&mut self, post: &Post) -> Result<(),Error> {
+    match &post.body {
+      PostBody::Text { channel, timestamp, .. } => {
+        if let Some(posts) = self.posts.get_mut(channel) {
+          posts.insert(*timestamp, post.clone());
+        } else {
+          let mut posts = BTreeMap::new();
+          posts.insert(*timestamp, post.clone());
+          self.posts.insert(channel.to_vec(), posts);
+        }
+      },
+      _ => {},
+    }
+    Ok(())
   }
 }
