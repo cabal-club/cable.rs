@@ -115,7 +115,7 @@ impl<S> Client<S> where S: Store {
     let (_pk,sk) = self.store.write().await.get_or_create_keypair().await?;
     Ok(sk)
   }
-  pub async fn listen<T>(&self, mut stream: T) -> Result<(),Error>
+  pub async fn listen<T>(&self, stream: T) -> Result<(),Error>
   where T: AsyncRead+AsyncWrite+Clone+Unpin+Send+Sync+'static {
     let peer_id = {
       let mut n = self.next_peer_id.write().await;
@@ -147,6 +147,7 @@ impl<S> Client<S> where S: Store {
     }
 
     w.await?;
+    self.peers.write().await.remove(&peer_id);
     Ok(())
   }
 }
