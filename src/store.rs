@@ -21,7 +21,7 @@ pub trait Store: Clone+Send+Sync+Unpin+'static {
       Ok(kp)
     }
   }
-  async fn get_latest(&mut self, channel: &[u8]) -> Result<[u8;32],Error>;
+  async fn get_latest_hash(&mut self, channel: &[u8]) -> Result<[u8;32],Error>;
   async fn insert_post(&mut self, post: &Post) -> Result<(),Error>;
 }
 
@@ -53,7 +53,7 @@ impl Store for MemoryStore {
     self.keypair = keypair;
     Ok(())
   }
-  async fn get_latest(&mut self, channel: &[u8]) -> Result<[u8;32],Error> {
+  async fn get_latest_hash(&mut self, channel: &[u8]) -> Result<[u8;32],Error> {
     // todo: actually use latest message if available instead of zeros
     Ok([0;32])
   }
