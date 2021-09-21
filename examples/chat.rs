@@ -8,7 +8,7 @@ fn main() -> Result<(),Error> {
     let store = MemoryStore::default();
     let cable = Cable::new(Box::new(store));
     {
-      let client = cable.client();
+      let client = cable.clone();
       task::spawn(async move {
         let stdin = io::stdin();
         let mut line = String::new();
@@ -26,7 +26,7 @@ fn main() -> Result<(),Error> {
     let mut incoming = listener.incoming();
     while let Some(rstream) = incoming.next().await {
       let stream = rstream.unwrap();
-      let client = cable.client();
+      let client = cable.clone();
       task::spawn(async move {
         client.listen(stream).await.unwrap();
       });

@@ -44,27 +44,9 @@ impl<S> Cable<S> where S: Store {
       listening: Arc::new(RwLock::new(HashMap::new())),
     }
   }
-  pub fn client(&self) -> Client<S> {
-    Client {
-      //cable: Arc::new(RwLock::new((*self).clone())),
-      store: self.store.clone(),
-      peers: self.peers.clone(),
-      next_peer_id: self.next_peer_id.clone(),
-      listening: self.listening.clone(),
-    }
-  }
 }
 
-#[derive(Clone)]
-pub struct Client<S: Store> {
-  //cable: Arc<RwLock<Cable<S>>>,
-  store: Arc<RwLock<Box<S>>>,
-  listening: Arc<RwLock<HashMap<Vec<u8>,Vec<ChannelOptions>>>>,
-  peers: Arc<RwLock<HashMap<usize,channel::Sender<Message>>>>,
-  next_peer_id: Arc<RwLock<usize>>,
-}
-
-impl<S> Client<S> where S: Store {
+impl<S> Cable<S> where S: Store {
   pub async fn post_text(&self, channel: &[u8], text: &[u8]) -> Result<(),Error> {
     let timestamp = std::time::SystemTime::now()
       .duration_since(std::time::UNIX_EPOCH)?.as_secs();
