@@ -4,6 +4,7 @@ use async_std::{prelude::*,sync::{Arc,RwLock},channel,task};
 use std::collections::HashMap;
 use futures::io::{AsyncRead,AsyncWrite};
 use desert::{ToBytes,FromBytes};
+use std::convert::TryInto;
 
 pub type ReqID = [u8;4];
 pub type Hash = [u8;32];
@@ -22,9 +23,10 @@ pub use error::*;
 use length_prefixed_stream::{decode_with_options,DecodeOptions};
 
 pub struct ChannelOptions {
-  gt: Option<u64>,
-  lt: Option<u64>,
-  limit: u64,
+  pub channel: Vec<u8>,
+  pub time_start: u64,
+  pub time_end: u64,
+  pub limit: usize,
 }
 
 #[derive(Clone)]
@@ -32,7 +34,9 @@ pub struct Cable<S: Store> {
   store: Arc<RwLock<Box<S>>>,
   peers: Arc<RwLock<HashMap<usize,channel::Sender<Message>>>>,
   next_peer_id: Arc<RwLock<usize>>,
-  listening: Arc<RwLock<HashMap<Vec<u8>,Vec<ChannelOptions>>>>,
+  next_req_id: Arc<RwLock<u32>>,
+  listening: Arc<RwLock<HashMap<Vec<u8>,Vec<(usize,ChannelOptions)>>>>,
+  open_requests: Arc<RwLock<HashMap<u32,Message>>>,
 }
 
 impl<S> Cable<S> where S: Store {
@@ -41,7 +45,9 @@ impl<S> Cable<S> where S: Store {
       store: Arc::new(RwLock::new(store)),
       peers: Arc::new(RwLock::new(HashMap::new())),
       next_peer_id: Arc::new(RwLock::new(0)),
+      next_req_id: Arc::new(RwLock::new(0)),
       listening: Arc::new(RwLock::new(HashMap::new())),
+      open_requests: Arc::new(RwLock::new(HashMap::new())),
     }
   }
 }
@@ -81,6 +87,28 @@ impl<S> Cable<S> where S: Store {
       ch.send(message.clone()).await?;
     }
     Ok(())
+  }
+  pub async fn open_channel(&self, options: &ChannelOptions) -> Result<(),Error> {
+    let (req_id,req_id_bytes) = {
+      let mut n = self.next_req_id.write().await;
+      let r = *n;
+      *n = if *n == u32::MAX { 0 } else { *n + 1 };
+      (r,r.to_bytes()?.try_into().unwrap())
+    };
+    let m = Message::ChannelTimeRangeRequest {
+      req_id: req_id_bytes,
+      ttl: 1,
+      channel: options.channel.to_vec(),
+      time_start: options.time_start,
+      time_end: options.time_end,
+      limit: options.limit,
+    };
+    self.broadcast(&m).await?;
+    self.open_requests.write().await.insert(req_id,m);
+    Ok(())
+  }
+  pub async fn close_channel(&self, channel: &[u8]) {
+    unimplemented![]
   }
   pub async fn get_peer_ids(&self) -> Vec<usize> {
     self.peers.read().await.keys().copied().collect::<Vec<usize>>()
