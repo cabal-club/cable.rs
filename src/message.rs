@@ -162,7 +162,6 @@ impl ToBytes for Message {
       Self::ChannelTimeRangeRequest { req_id, ttl, channel, time_start, time_end, limit } => {
         offset += req_id.write_bytes(&mut buf[offset..])?;
         offset += varint::encode(*ttl as u64, &mut buf[offset..])?;
-        offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
         if offset+channel.len() >= buf.len() {
           return E::DstTooSmall {
             required: offset+channel.len(),
@@ -178,7 +177,6 @@ impl ToBytes for Message {
       Self::ChannelStateRequest { req_id, ttl, channel, limit, updates } => {
         offset += req_id.write_bytes(&mut buf[offset..])?;
         offset += varint::encode(*ttl as u64, &mut buf[offset..])?;
-        offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
         if offset+channel.len() >= buf.len() {
           return E::DstTooSmall {
             required: offset+channel.len(),
