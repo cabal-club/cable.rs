@@ -125,7 +125,7 @@ impl<S> Cable<S> where S: Store {
     let (_pk,sk) = self.store.write().await.get_or_create_keypair().await?;
     Ok(sk)
   }
-  pub async fn listen<T>(&self, stream: T) -> Result<(),Error>
+  pub async fn listen<T>(&self, mut stream: T) -> Result<(),Error>
   where T: AsyncRead+AsyncWrite+Clone+Unpin+Send+Sync+'static {
     let peer_id = {
       let mut n = self.next_peer_id.write().await;
@@ -135,6 +135,11 @@ impl<S> Cable<S> where S: Store {
     };
     let (send,recv) = channel::bounded(100);
     self.peers.write().await.insert(peer_id, send);
+
+    for msg in self.open_requests.read().await.values() {
+      stream.write_all(&msg.to_bytes()?).await?;
+    }
+
     let w = {
       let mut cstream = stream.clone();
       task::spawn(async move {
@@ -151,7 +156,6 @@ impl<S> Cable<S> where S: Store {
     let mut lps = decode_with_options(stream, options);
     while let Some(rbuf) = lps.next().await {
       let buf = rbuf?;
-      println!["buf={:?}", &buf];
       let msg = Message::from_bytes(&buf);
       println!["msg={:?}", &msg];
     }
