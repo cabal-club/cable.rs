@@ -120,7 +120,7 @@ impl ToBytes for Message {
               provided: buf.len(),
             }.raise();
           }
-          buf[offset..].copy_from_slice(hash);
+          buf[offset..offset+hash.len()].copy_from_slice(hash);
           offset += hash.len();
         }
         offset
@@ -135,7 +135,7 @@ impl ToBytes for Message {
               provided: buf.len(),
             }.raise();
           }
-          buf[offset..].copy_from_slice(d);
+          buf[offset..offset+d.len()].copy_from_slice(d);
         }
         offset += varint::encode(0, &mut buf[offset..])?;
         offset
@@ -151,7 +151,7 @@ impl ToBytes for Message {
               provided: buf.len(),
             }.raise();
           }
-          buf[offset..].copy_from_slice(hash);
+          buf[offset..offset+hash.len()].copy_from_slice(hash);
           offset += hash.len();
         }
         offset
