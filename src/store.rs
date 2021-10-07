@@ -1,8 +1,16 @@
-use crate::{Error,Post,PostBody};
+use crate::{Error,Post,PostBody,Channel,Hash};
 use sodiumoxide::crypto;
 use std::convert::TryInto;
 use std::collections::{HashMap,BTreeMap};
+use async_std::stream::Stream;
 pub type Keypair = ([u8;32],[u8;64]);
+
+pub struct GetPostOptions {
+  pub channel: Channel,
+  pub time_start: u64,
+  pub time_end: u64,
+  pub limit: usize,
+}
 
 #[async_trait::async_trait]
 pub trait Store: Clone+Send+Sync+Unpin+'static {
@@ -23,6 +31,12 @@ pub trait Store: Clone+Send+Sync+Unpin+'static {
   }
   async fn get_latest_hash(&mut self, channel: &[u8]) -> Result<[u8;32],Error>;
   async fn insert_post(&mut self, post: &Post) -> Result<(),Error>;
+  fn get_posts(
+    &mut self, opts: &GetPostOptions
+  ) -> Box<dyn Stream<Item=Result<Post,Error>>+Unpin+Send>;
+  fn get_post_hashes(
+    &mut self, opts: &GetPostOptions
+  ) -> Box<dyn Stream<Item=Result<Hash,Error>>+Unpin+Send>;
 }
 
 #[derive(Clone)]
@@ -71,5 +85,15 @@ impl Store for MemoryStore {
       _ => {},
     }
     Ok(())
+  }
+  fn get_posts(
+    &mut self, opts: &GetPostOptions
+  ) -> Box<dyn Stream<Item=Result<Post,Error>>+Unpin+Send> {
+    unimplemented![]
+  }
+  fn get_post_hashes(
+    &mut self, opts: &GetPostOptions
+  ) -> Box<dyn Stream<Item=Result<Hash,Error>>+Unpin+Send> {
+    unimplemented![]
   }
 }

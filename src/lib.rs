@@ -2,7 +2,7 @@
 
 use async_std::{prelude::*,sync::{Arc,RwLock},channel,task};
 use std::collections::HashMap;
-use futures::io::{AsyncRead,AsyncWrite};
+use futures::{io::{AsyncRead,AsyncWrite}};
 use desert::{ToBytes,FromBytes};
 use std::convert::TryInto;
 
@@ -82,9 +82,35 @@ impl<S> Cable<S> where S: Store {
     }
     Ok(())
   }
-  pub async fn send(&self, peer_id: usize, message: &Message) -> Result<(),Error> {
+  pub async fn send(&self, peer_id: usize, msg: &Message) -> Result<(),Error> {
     if let Some(ch) = self.peers.read().await.get(&peer_id) {
-      ch.send(message.clone()).await?;
+      ch.send(msg.clone()).await?;
+    }
+    Ok(())
+  }
+  pub async fn handle(&self, peer_id: usize, msg: &Message) -> Result<(),Error> {
+    println!["msg={:?}", msg];
+    match msg {
+      Message::ChannelTimeRangeRequest { req_id, channel, time_start, time_end, limit, .. } => {
+        let opts = GetPostOptions {
+          channel: channel.to_vec(),
+          time_start: *time_start,
+          time_end: *time_end,
+          limit: *limit,
+        };
+        let n_limit = (*limit).min(4096);
+        let mut stream = self.store.write().await.get_post_hashes(&opts);
+        let mut hashes = vec![];
+        while let Some(result) = stream.next().await {
+          hashes.push(result?);
+          if hashes.len() >= n_limit { break }
+        }
+        let response = Message::HashResponse { req_id: *req_id, hashes };
+        self.send(peer_id, &response).await?;
+      },
+      _ => {
+        println!["other message type: todo"];
+      }
     }
     Ok(())
   }
@@ -156,8 +182,13 @@ impl<S> Cable<S> where S: Store {
     let mut lps = decode_with_options(stream, options);
     while let Some(rbuf) = lps.next().await {
       let buf = rbuf?;
-      let msg = Message::from_bytes(&buf);
-      println!["msg={:?}", &msg];
+      let (_,msg) = Message::from_bytes(&buf)?;
+      let this = self.clone();
+      task::spawn(async move {
+        if let Err(e) = this.handle(peer_id, &msg).await {
+          println!["{}", e];
+        }
+      });
     }
 
     w.await?;
