@@ -2,7 +2,7 @@ use crate::{Error,Post,PostBody,Channel,Hash};
 use sodiumoxide::crypto;
 use std::convert::TryInto;
 use std::collections::{HashMap,BTreeMap};
-use async_std::stream::Stream;
+use async_std::{stream::Stream,stream};
 pub type Keypair = ([u8;32],[u8;64]);
 
 pub struct GetPostOptions {
@@ -33,16 +33,19 @@ pub trait Store: Clone+Send+Sync+Unpin+'static {
   async fn insert_post(&mut self, post: &Post) -> Result<(),Error>;
   fn get_posts(
     &mut self, opts: &GetPostOptions
-  ) -> Box<dyn Stream<Item=Result<Post,Error>>+Unpin+Send>;
+  ) -> Box<dyn Stream<Item=Result<Post,Error>>+Unpin+Send+'_>;
   fn get_post_hashes(
     &mut self, opts: &GetPostOptions
-  ) -> Box<dyn Stream<Item=Result<Hash,Error>>+Unpin+Send>;
+  ) -> Box<dyn Stream<Item=Result<Hash,Error>>+Unpin+Send+'_>;
 }
 
 #[derive(Clone)]
 pub struct MemoryStore {
   keypair: Keypair,
-  posts: HashMap<Vec<u8>,BTreeMap<u64,Post>>,
+  posts: HashMap<Vec<u8>,BTreeMap<u64,Vec<Post>>>,
+  post_hashes: HashMap<Vec<u8>,BTreeMap<u64,Vec<Hash>>>,
+  empty_post_bt: BTreeMap<u64,Vec<Post>>,
+  empty_hash_bt: BTreeMap<u64,Vec<Hash>>,
 }
 
 impl Default for MemoryStore {
@@ -54,6 +57,9 @@ impl Default for MemoryStore {
         sk.as_ref().try_into().unwrap()
       ),
       posts: HashMap::new(),
+      post_hashes: HashMap::new(),
+      empty_post_bt: BTreeMap::new(),
+      empty_hash_bt: BTreeMap::new(),
     }
   }
 }
@@ -72,14 +78,30 @@ impl Store for MemoryStore {
     Ok([0;32])
   }
   async fn insert_post(&mut self, post: &Post) -> Result<(),Error> {
+    println!["insert {:?}", post];
     match &post.body {
       PostBody::Text { channel, timestamp, .. } => {
-        if let Some(posts) = self.posts.get_mut(channel) {
-          posts.insert(*timestamp, post.clone());
+        if let Some(post_map) = self.posts.get_mut(channel) {
+          if let Some(posts) = post_map.get_mut(timestamp) {
+            posts.push(post.clone());
+          } else {
+            post_map.insert(*timestamp, vec![post.clone()]);
+          }
         } else {
-          let mut posts = BTreeMap::new();
-          posts.insert(*timestamp, post.clone());
-          self.posts.insert(channel.to_vec(), posts);
+          let mut post_map = BTreeMap::new();
+          post_map.insert(*timestamp, vec![post.clone()]);
+          self.posts.insert(channel.to_vec(), post_map);
+        }
+        if let Some(hash_map) = self.post_hashes.get_mut(channel) {
+          if let Some(hashes) = hash_map.get_mut(timestamp) {
+            hashes.push(post.hash()?);
+          } else {
+            hash_map.insert(*timestamp, vec![post.hash()?]);
+          }
+        } else {
+          let mut hash_map = BTreeMap::new();
+          hash_map.insert(*timestamp, vec![post.hash()?]);
+          self.post_hashes.insert(channel.to_vec(), hash_map);
         }
       },
       _ => {},
@@ -88,12 +110,20 @@ impl Store for MemoryStore {
   }
   fn get_posts(
     &mut self, opts: &GetPostOptions
-  ) -> Box<dyn Stream<Item=Result<Post,Error>>+Unpin+Send> {
-    unimplemented![]
+  ) -> Box<dyn Stream<Item=Result<Post,Error>>+Unpin+Send+'_> {
+    let post_iter = self.posts.get(&opts.channel)
+      .unwrap_or(&self.empty_post_bt)
+      .range(opts.time_start..opts.time_end)
+      .flat_map(|(_time,posts)| posts.iter().map(|post| Ok(post.clone())));
+    Box::new(stream::from_iter(post_iter))
   }
   fn get_post_hashes(
     &mut self, opts: &GetPostOptions
-  ) -> Box<dyn Stream<Item=Result<Hash,Error>>+Unpin+Send> {
-    unimplemented![]
+  ) -> Box<dyn Stream<Item=Result<Hash,Error>>+Unpin+Send+'_> {
+    let hash_iter = self.post_hashes.get(&opts.channel)
+      .unwrap_or(&self.empty_hash_bt)
+      .range(opts.time_start..opts.time_end)
+      .flat_map(|(_time,hashes)| hashes.iter().map(|hash| Ok(*hash)));
+    Box::new(stream::from_iter(hash_iter))
   }
 }
