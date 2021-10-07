@@ -1,4 +1,4 @@
-#![feature(backtrace)]
+#![feature(backtrace,async_closure)]
 
 use async_std::{prelude::*,sync::{Arc,RwLock},channel,task};
 use std::collections::HashMap;
@@ -99,7 +99,8 @@ impl<S> Cable<S> where S: Store {
           limit: *limit,
         };
         let n_limit = (*limit).min(4096);
-        let mut stream = self.store.write().await.get_post_hashes(&opts);
+        let mut store_w = self.store.write().await;
+        let mut stream = store_w.get_post_hashes(&opts);
         let mut hashes = vec![];
         while let Some(result) = stream.next().await {
           hashes.push(result?);
