@@ -1,6 +1,7 @@
 use desert::{FromBytes,ToBytes,CountBytes,varint};
 use crate::{Error,Hash,Channel,error::CableErrorKind as E};
 use sodiumoxide::crypto;
+use std::convert::TryInto;
 
 #[derive(Clone,Debug)]
 pub struct Post {
@@ -78,6 +79,11 @@ impl Post {
       }
     }
     return false;
+  }
+  pub fn hash(&self) -> Result<Hash,Error> {
+    let buf = self.to_bytes()?;
+    let digest = crypto::generichash::hash(&buf, Some(32), None).unwrap();
+    Ok(digest.as_ref().try_into()?)
   }
 }
 
