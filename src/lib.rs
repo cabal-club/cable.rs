@@ -6,7 +6,8 @@ use futures::{io::{AsyncRead,AsyncWrite}};
 use desert::{ToBytes,FromBytes};
 use std::convert::TryInto;
 
-pub type ReqID = [u8;4];
+pub type ReqId = [u8;4];
+pub type PeerId = usize;
 pub type Hash = [u8;32];
 pub type Payload = Vec<u8>;
 pub type Channel = Vec<u8>;
@@ -35,7 +36,7 @@ pub struct Cable<S: Store> {
   peers: Arc<RwLock<HashMap<usize,channel::Sender<Message>>>>,
   next_peer_id: Arc<RwLock<usize>>,
   next_req_id: Arc<RwLock<u32>>,
-  listening: Arc<RwLock<HashMap<Vec<u8>,Vec<(usize,ChannelOptions)>>>>,
+  listening: Arc<RwLock<HashMap<PeerId,Vec<(ReqId,ChannelOptions)>>>>,
   open_requests: Arc<RwLock<HashMap<u32,Message>>>,
 }
 
@@ -74,6 +75,20 @@ impl<S> Cable<S> where S: Store {
       post.sign(&self.get_secret_key().await?)?;
     }
     self.store.write().await.insert_post(&post).await?;
+    for (peer_id,reqs) in self.listening.read().await.iter() {
+      for (req_id,opts) in reqs {
+        let n_limit = opts.limit.min(4096);
+        let mut store_w = self.store.write().await;
+        let mut stream = store_w.get_post_hashes(&opts);
+        let mut hashes = vec![];
+        while let Some(result) = stream.next().await {
+          hashes.push(result?);
+          if hashes.len() >= n_limit { break }
+        }
+        let response = Message::HashResponse { req_id: req_id.clone(), hashes };
+        self.send(*peer_id, &response).await?;
+      }
+    }
     Ok(())
   }
   pub async fn broadcast(&self, message: &Message) -> Result<(),Error> {
@@ -83,6 +98,7 @@ impl<S> Cable<S> where S: Store {
     Ok(())
   }
   pub async fn send(&self, peer_id: usize, msg: &Message) -> Result<(),Error> {
+    eprintln!["send {} {:?}", peer_id, msg];
     if let Some(ch) = self.peers.read().await.get(&peer_id) {
       ch.send(msg.clone()).await?;
     }
@@ -107,6 +123,14 @@ impl<S> Cable<S> where S: Store {
           if hashes.len() >= n_limit { break }
         }
         let response = Message::HashResponse { req_id: *req_id, hashes };
+        {
+          let mut w = self.listening.write().await;
+          if let Some(listeners) = w.get_mut(&peer_id) {
+            listeners.push((req_id.clone(),opts));
+          } else {
+            w.insert(peer_id, vec![(req_id.clone(),opts)]);
+          }
+        }
         self.send(peer_id, &response).await?;
       },
       _ => {
