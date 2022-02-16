@@ -114,7 +114,7 @@ impl ToBytes for Message {
         offset += req_id.write_bytes(&mut buf[offset..])?;
         offset += varint::encode(hashes.len() as u64, &mut buf[offset..])?;
         for hash in hashes.iter() {
-          if offset+hash.len() >= buf.len() {
+          if offset+hash.len() > buf.len() {
             return E::DstTooSmall {
               required: offset+hash.len(),
               provided: buf.len(),
@@ -129,7 +129,7 @@ impl ToBytes for Message {
         offset += req_id.write_bytes(&mut buf[offset..])?;
         for d in data.iter() {
           offset += varint::encode(d.len() as u64, &mut buf[offset..])?;
-          if offset+d.len() >= buf.len() {
+          if offset+d.len() > buf.len() {
             return E::DstTooSmall {
               required: offset+d.len(),
               provided: buf.len(),
@@ -145,7 +145,7 @@ impl ToBytes for Message {
         offset += varint::encode(*ttl as u64, &mut buf[offset..])?;
         offset += varint::encode(hashes.len() as u64, &mut buf[offset..])?;
         for hash in hashes.iter() {
-          if offset+hash.len() >= buf.len() {
+          if offset+hash.len() > buf.len() {
             return E::DstTooSmall {
               required: offset+hash.len(),
               provided: buf.len(),
@@ -163,7 +163,7 @@ impl ToBytes for Message {
       Self::ChannelTimeRangeRequest { req_id, ttl, channel, time_start, time_end, limit } => {
         offset += req_id.write_bytes(&mut buf[offset..])?;
         offset += varint::encode(*ttl as u64, &mut buf[offset..])?;
-        if offset+channel.len() >= buf.len() {
+        if offset+channel.len() > buf.len() {
           return E::DstTooSmall {
             required: offset+channel.len(),
             provided: buf.len(),
@@ -178,7 +178,7 @@ impl ToBytes for Message {
       Self::ChannelStateRequest { req_id, ttl, channel, limit, updates } => {
         offset += req_id.write_bytes(&mut buf[offset..])?;
         offset += varint::encode(*ttl as u64, &mut buf[offset..])?;
-        if offset+channel.len() >= buf.len() {
+        if offset+channel.len() > buf.len() {
           return E::DstTooSmall {
             required: offset+channel.len(),
             provided: buf.len(),
@@ -213,7 +213,7 @@ impl FromBytes for Message {
     offset += s;
     Ok(match msg_type {
       0 => {
-        if offset+4 >= buf.len() { return E::MessageHashResponseEnd {}.raise() }
+        if offset+4 > buf.len() { return E::MessageHashResponseEnd {}.raise() }
         let mut req_id = [0;4];
         req_id.copy_from_slice(&buf[offset..offset+4]);
         offset += 4;
@@ -221,7 +221,7 @@ impl FromBytes for Message {
         offset += s;
         let mut hashes = Vec::with_capacity(hash_count as usize);
         for _ in 0..hash_count {
-          if offset+32 >= buf.len() { return E::MessageHashResponseEnd {}.raise() }
+          if offset+32 > buf.len() { return E::MessageHashResponseEnd {}.raise() }
           let mut hash = [0;32];
           hash.copy_from_slice(&buf[offset..offset+32]);
           offset += 32;
@@ -230,7 +230,7 @@ impl FromBytes for Message {
         (msg_len, Self::HashResponse { req_id, hashes })
       },
       1 => {
-        if offset+4 >= buf.len() { return E::MessageDataResponseEnd {}.raise() }
+        if offset+4 > buf.len() { return E::MessageDataResponseEnd {}.raise() }
         let mut req_id = [0;4];
         req_id.copy_from_slice(&buf[offset..offset+4]);
         offset += 4;
@@ -244,7 +244,7 @@ impl FromBytes for Message {
         (msg_len, Self::DataResponse { req_id, data })
       },
       2 => {
-        if offset+4 >= buf.len() { return E::MessageHashRequestEnd {}.raise() }
+        if offset+4 > buf.len() { return E::MessageHashRequestEnd {}.raise() }
         let mut req_id = [0;4];
         req_id.copy_from_slice(&buf[offset..offset+4]);
         offset += 4;
@@ -254,7 +254,7 @@ impl FromBytes for Message {
         offset += s;
         let mut hashes = Vec::with_capacity(hash_count as usize);
         for _ in 0..hash_count {
-          if offset+32 >= buf.len() { return E::MessageHashRequestEnd {}.raise() }
+          if offset+32 > buf.len() { return E::MessageHashRequestEnd {}.raise() }
           let mut hash = [0;32];
           hash.copy_from_slice(&buf[offset..offset+32]);
           offset += 32;
@@ -263,13 +263,13 @@ impl FromBytes for Message {
         (msg_len, Self::HashRequest { req_id, ttl: ttl as usize, hashes })
       },
       3 => {
-        if offset+4 >= buf.len() { return E::MessageCancelRequestEnd {}.raise() }
+        if offset+4 > buf.len() { return E::MessageCancelRequestEnd {}.raise() }
         let mut req_id = [0;4];
         req_id.copy_from_slice(&buf[offset..offset+4]);
         (msg_len, Self::CancelRequest { req_id })
       },
       4 => {
-        if offset+4 >= buf.len() { return E::MessageChannelTimeRangeRequestEnd {}.raise() }
+        if offset+4 > buf.len() { return E::MessageChannelTimeRangeRequestEnd {}.raise() }
         let mut req_id = [0;4];
         req_id.copy_from_slice(&buf[offset..offset+4]);
         offset += 4;
@@ -290,7 +290,7 @@ impl FromBytes for Message {
         })
       },
       5 => {
-        if offset+4 >= buf.len() { return E::MessageChannelStateRequestEnd {}.raise() }
+        if offset+4 > buf.len() { return E::MessageChannelStateRequestEnd {}.raise() }
         let mut req_id = [0;4];
         req_id.copy_from_slice(&buf[offset..offset+4]);
         offset += 4;
@@ -308,7 +308,7 @@ impl FromBytes for Message {
         })
       },
       6 => {
-        if offset+4 >= buf.len() { return E::MessageChannelListRequestEnd {}.raise() }
+        if offset+4 > buf.len() { return E::MessageChannelListRequestEnd {}.raise() }
         let mut req_id = [0;4];
         req_id.copy_from_slice(&buf[offset..offset+4]);
         offset += 4;

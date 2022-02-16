@@ -98,7 +98,6 @@ impl<S> Cable<S> where S: Store {
     Ok(())
   }
   pub async fn send(&self, peer_id: usize, msg: &Message) -> Result<(),Error> {
-    eprintln!["send {} {:?}", peer_id, msg];
     if let Some(ch) = self.peers.read().await.get(&peer_id) {
       ch.send(msg.clone()).await?;
     }
@@ -133,9 +132,12 @@ impl<S> Cable<S> where S: Store {
         }
         self.send(peer_id, &response).await?;
       },
+      Message::HashResponse { req_id, hashes } => {
+        println!["hashes={:?}", &hashes];
+      },
       _ => {
         println!["other message type: todo"];
-      }
+      },
     }
     Ok(())
   }
@@ -195,7 +197,7 @@ impl<S> Cable<S> where S: Store {
       let mut cstream = stream.clone();
       task::spawn(async move {
         while let Ok(msg) = recv.recv().await {
-          cstream.write_all(&msg.to_bytes()?);
+          cstream.write_all(&msg.to_bytes().unwrap()).await.unwrap();
         }
         let res: Result<(),Error> = Ok(());
         res
@@ -211,7 +213,7 @@ impl<S> Cable<S> where S: Store {
       let this = self.clone();
       task::spawn(async move {
         if let Err(e) = this.handle(peer_id, &msg).await {
-          println!["{}", e];
+          eprintln!["{}", e];
         }
       });
     }

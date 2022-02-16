@@ -14,7 +14,8 @@ fn main() -> Result<(),Error> {
       let options = ChannelOptions {
         channel: "default".as_bytes().to_vec(),
         time_start: 0,
-        time_end: now(),
+        //time_end: now(),
+        time_end: 0,
         limit: 20,
       };
       client.open_channel(&options).await?;
