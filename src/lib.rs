@@ -7,6 +7,7 @@ use desert::{ToBytes,FromBytes};
 use std::convert::TryInto;
 
 pub type ReqId = [u8;4];
+pub type ReplyId = [u8;4];
 pub type PeerId = usize;
 pub type Hash = [u8;32];
 pub type Payload = Vec<u8>;
@@ -133,7 +134,23 @@ impl<S> Cable<S> where S: Store {
         self.send(peer_id, &response).await?;
       },
       Message::HashResponse { req_id, hashes } => {
-        println!["hashes={:?}", &hashes];
+        let mut store = self.store.write().await;
+        let want = store.want(hashes).await?;
+        if !want.is_empty() {
+          let hreq = Message::HashRequest {
+            req_id: *req_id,
+            ttl: 1,
+            hashes: want,
+          };
+          self.send(peer_id, &hreq).await?;
+        }
+      },
+      Message::HashRequest { req_id, ttl, hashes } => {
+        let response = Message::DataResponse {
+          req_id: *req_id,
+          data: self.store.write().await.get_data(hashes).await?,
+        };
+        self.send(peer_id, &response).await?
       },
       _ => {
         println!["other message type: todo"];
@@ -141,13 +158,14 @@ impl<S> Cable<S> where S: Store {
     }
     Ok(())
   }
+  async fn req_id(&self) -> (u32,ReqId) {
+    let mut n = self.next_req_id.write().await;
+    let r = *n;
+    *n = if *n == u32::MAX { 0 } else { *n + 1 };
+    (r,r.to_bytes().unwrap().try_into().unwrap())
+  }
   pub async fn open_channel(&self, options: &ChannelOptions) -> Result<(),Error> {
-    let (req_id,req_id_bytes) = {
-      let mut n = self.next_req_id.write().await;
-      let r = *n;
-      *n = if *n == u32::MAX { 0 } else { *n + 1 };
-      (r,r.to_bytes()?.try_into().unwrap())
-    };
+    let (req_id,req_id_bytes) = self.req_id().await;
     let m = Message::ChannelTimeRangeRequest {
       req_id: req_id_bytes,
       ttl: 1,

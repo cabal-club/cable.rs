@@ -1,10 +1,11 @@
 use desert::{FromBytes,ToBytes,CountBytes,varint};
-use crate::{ReqId,Hash,Payload,Channel,Error,error::CableErrorKind as E};
+use crate::{ReqId,ReplyId,Hash,Payload,Channel,Error,error::CableErrorKind as E};
 
 #[derive(Clone,Debug)]
 pub enum Message {
   HashResponse {
     req_id: ReqId,
+    //reply_id: ReplyId,
     hashes: Vec<Hash>
   },
   DataResponse {
@@ -13,6 +14,7 @@ pub enum Message {
   },
   HashRequest {
     req_id: ReqId,
+    //reply_id: ReplyId,
     ttl: usize,
     hashes: Vec<Hash>,
   },
@@ -21,6 +23,7 @@ pub enum Message {
   },
   ChannelTimeRangeRequest {
     req_id: ReqId,
+    //reply_id: ReplyId,
     ttl: usize,
     channel: Channel,
     time_start: u64,
@@ -29,6 +32,7 @@ pub enum Message {
   },
   ChannelStateRequest {
     req_id: ReqId,
+    //reply_id: ReplyId,
     ttl: usize,
     channel: Channel,
     limit: usize,
@@ -36,6 +40,7 @@ pub enum Message {
   },
   ChannelListRequest {
     req_id: ReqId,
+    //reply_id: ReplyId,
     ttl: usize,
     limit: usize,
   },

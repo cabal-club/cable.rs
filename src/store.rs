@@ -3,6 +3,7 @@ use sodiumoxide::crypto;
 use std::convert::TryInto;
 use std::collections::{HashMap,BTreeMap};
 use async_std::{stream::Stream,stream};
+use desert::ToBytes;
 pub type Keypair = ([u8;32],[u8;64]);
 pub type GetPostOptions = ChannelOptions;
 
@@ -31,6 +32,8 @@ pub trait Store: Clone+Send+Sync+Unpin+'static {
   fn get_post_hashes(
     &mut self, opts: &GetPostOptions
   ) -> Box<dyn Stream<Item=Result<Hash,Error>>+Unpin+Send+'_>;
+  async fn want(&mut self, hashes: &[Hash]) -> Result<Vec<Hash>,Error>;
+  async fn get_data(&mut self, hashes: &[Hash]) -> Result<Vec<Vec<u8>>,Error>;
 }
 
 #[derive(Clone)]
@@ -38,6 +41,7 @@ pub struct MemoryStore {
   keypair: Keypair,
   posts: HashMap<Vec<u8>,BTreeMap<u64,Vec<Post>>>,
   post_hashes: HashMap<Vec<u8>,BTreeMap<u64,Vec<Hash>>>,
+  data: HashMap<Hash,Vec<u8>>,
   empty_post_bt: BTreeMap<u64,Vec<Post>>,
   empty_hash_bt: BTreeMap<u64,Vec<Hash>>,
 }
@@ -52,6 +56,7 @@ impl Default for MemoryStore {
       ),
       posts: HashMap::new(),
       post_hashes: HashMap::new(),
+      data: HashMap::new(),
       empty_post_bt: BTreeMap::new(),
       empty_hash_bt: BTreeMap::new(),
     }
@@ -90,12 +95,16 @@ impl Store for MemoryStore {
           if let Some(hashes) = hash_map.get_mut(timestamp) {
             hashes.push(post.hash()?);
           } else {
-            hash_map.insert(*timestamp, vec![post.hash()?]);
+            let hash = post.hash()?;
+            hash_map.insert(*timestamp, vec![hash.clone()]);
+            self.data.insert(hash, post.to_bytes()?);
           }
         } else {
           let mut hash_map = BTreeMap::new();
-          hash_map.insert(*timestamp, vec![post.hash()?]);
+          let hash = post.hash()?;
+          hash_map.insert(*timestamp, vec![hash.clone()]);
           self.post_hashes.insert(channel.to_vec(), hash_map);
+          self.data.insert(hash, post.to_bytes()?);
         }
       },
       _ => {},
@@ -129,5 +138,11 @@ impl Store for MemoryStore {
       .unwrap_or(empty)
       .flat_map(|(_time,hashes)| hashes.iter().map(|hash| Ok(*hash)));
     Box::new(stream::from_iter(hash_iter))
+  }
+  async fn want(&mut self, hashes: &[Hash]) -> Result<Vec<Hash>,Error> {
+    Ok(hashes.iter().filter(|hash| !self.data.contains_key(hash.clone())).cloned().collect())
+  }
+  async fn get_data(&mut self, hashes: &[Hash]) -> Result<Vec<Vec<u8>>,Error> {
+    Ok(hashes.iter().filter_map(|hash| self.data.get(hash)).cloned().collect())
   }
 }
