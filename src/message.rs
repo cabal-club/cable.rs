@@ -6,7 +6,7 @@ pub enum Message {
   HashResponse {
     req_id: ReqId,
     //reply_id: ReplyId,
-    hashes: Vec<Hash>
+    hashes: Vec<Hash>,
   },
   DataResponse {
     req_id: ReqId,
@@ -56,7 +56,9 @@ impl CountBytes for Message {
         varint::length(0) + 4 + varint::length(hashes.len() as u64) + hashes.len()*32
       },
       Self::DataResponse { data, .. } => {
-        varint::length(1) + 4 + varint::length(data.len() as u64) + data.len()
+        varint::length(1) + 4
+          + data.iter().fold(0, |sum,d| sum + varint::length(d.len() as u64) + d.len())
+          + varint::length(0)
       },
       Self::HashRequest { ttl, hashes, .. } => {
         varint::length(2) + 4 + varint::length(*ttl as u64)
@@ -141,6 +143,7 @@ impl ToBytes for Message {
             }.raise();
           }
           buf[offset..offset+d.len()].copy_from_slice(d);
+          offset += d.len();
         }
         offset += varint::encode(0, &mut buf[offset..])?;
         offset

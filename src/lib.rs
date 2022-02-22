@@ -152,6 +152,10 @@ impl<S> Cable<S> where S: Store {
         };
         self.send(peer_id, &response).await?
       },
+      Message::DataResponse { req_id, data } => {
+        println!["data={:?}", &data];
+        // todo: hash data, write to store
+      },
       _ => {
         println!["other message type: todo"];
       },
@@ -215,6 +219,7 @@ impl<S> Cable<S> where S: Store {
       let mut cstream = stream.clone();
       task::spawn(async move {
         while let Ok(msg) = recv.recv().await {
+          println!["write {:?}", &msg];
           cstream.write_all(&msg.to_bytes().unwrap()).await.unwrap();
         }
         let res: Result<(),Error> = Ok(());

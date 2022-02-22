@@ -1,4 +1,4 @@
-use crate::{Error,Post,PostBody,Channel,Hash,ChannelOptions};
+use crate::{Error,Post,PostBody,Channel,Hash,Payload,ChannelOptions};
 use sodiumoxide::crypto;
 use std::convert::TryInto;
 use std::collections::{HashMap,BTreeMap};
@@ -33,15 +33,15 @@ pub trait Store: Clone+Send+Sync+Unpin+'static {
     &mut self, opts: &GetPostOptions
   ) -> Box<dyn Stream<Item=Result<Hash,Error>>+Unpin+Send+'_>;
   async fn want(&mut self, hashes: &[Hash]) -> Result<Vec<Hash>,Error>;
-  async fn get_data(&mut self, hashes: &[Hash]) -> Result<Vec<Vec<u8>>,Error>;
+  async fn get_data(&mut self, hashes: &[Hash]) -> Result<Vec<Payload>,Error>;
 }
 
 #[derive(Clone)]
 pub struct MemoryStore {
   keypair: Keypair,
-  posts: HashMap<Vec<u8>,BTreeMap<u64,Vec<Post>>>,
-  post_hashes: HashMap<Vec<u8>,BTreeMap<u64,Vec<Hash>>>,
-  data: HashMap<Hash,Vec<u8>>,
+  posts: HashMap<Channel,BTreeMap<u64,Vec<Post>>>,
+  post_hashes: HashMap<Channel,BTreeMap<u64,Vec<Hash>>>,
+  data: HashMap<Hash,Payload>,
   empty_post_bt: BTreeMap<u64,Vec<Post>>,
   empty_hash_bt: BTreeMap<u64,Vec<Hash>>,
 }
@@ -142,7 +142,7 @@ impl Store for MemoryStore {
   async fn want(&mut self, hashes: &[Hash]) -> Result<Vec<Hash>,Error> {
     Ok(hashes.iter().filter(|hash| !self.data.contains_key(hash.clone())).cloned().collect())
   }
-  async fn get_data(&mut self, hashes: &[Hash]) -> Result<Vec<Vec<u8>>,Error> {
+  async fn get_data(&mut self, hashes: &[Hash]) -> Result<Vec<Payload>,Error> {
     Ok(hashes.iter().filter_map(|hash| self.data.get(hash)).cloned().collect())
   }
 }
