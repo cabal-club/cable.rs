@@ -62,8 +62,14 @@ impl Post {
       PostBody::Unrecognized { post_type } => *post_type,
     }
   }
-  pub fn verify(_buf: &[u8]) -> bool {
-    unimplemented![]
+  pub fn verify(buf: &[u8]) -> bool {
+    if buf.len() < 32+64 { return false }
+    let o_pk = crypto::sign::PublicKey::from_slice(&buf[0..32]);
+    let o_sig = crypto::sign::Signature::from_bytes(&buf[32..32+64]);
+    match (o_pk,o_sig) {
+      (Some(pk),Ok(sig)) => crypto::sign::verify_detached(&sig, &buf[32+64..], &pk),
+      _ => false,
+    }
   }
   pub fn sign(&mut self, secret_key: &[u8;64]) -> Result<(),Error> {
     let buf = self.to_bytes()?;

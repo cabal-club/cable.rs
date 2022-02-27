@@ -153,8 +153,13 @@ impl<S> Cable<S> where S: Store {
         self.send(peer_id, &response).await?
       },
       Message::DataResponse { req_id, data } => {
-        println!["data={:?}", &data];
-        // todo: hash data, write to store
+        for buf in data {
+          // todo: make sure this data block was requested before storing
+          let post = Post::from_bytes(&buf)?;
+          println!["post={:?}", &post];
+          println!["post verify {}", Post::verify(&buf)];
+          // todo: hash data, write to store
+        }
       },
       _ => {
         println!["other message type: todo"];
