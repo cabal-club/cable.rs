@@ -10,6 +10,7 @@ pub enum Message {
   },
   DataResponse {
     req_id: ReqId,
+    //reply_id: ReplyId,
     data: Vec<Payload>,
   },
   HashRequest {
@@ -245,9 +246,10 @@ impl FromBytes for Message {
         let mut data = vec![];
         loop {
           let (s,data_len) = varint::decode(&buf[offset..])?;
-          if data_len == 0 { break }
-          data.push(buf[offset..offset+s].to_vec());
           offset += s;
+          if data_len == 0 { break }
+          data.push(buf[offset..offset+(data_len as usize)].to_vec());
+          offset += data_len as usize;
         }
         (msg_len, Self::DataResponse { req_id, data })
       },
