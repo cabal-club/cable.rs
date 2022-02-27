@@ -155,10 +155,10 @@ impl<S> Cable<S> where S: Store {
       Message::DataResponse { req_id, data } => {
         for buf in data {
           // todo: make sure this data block was requested before storing
-          let post = Post::from_bytes(&buf)?;
-          println!["post={:?}", &post];
-          println!["post verify {}", Post::verify(&buf)];
-          // todo: hash data, write to store
+          if !Post::verify(&buf) { continue }
+          let (s,post) = Post::from_bytes(&buf)?;
+          if s != buf.len() { continue }
+          self.store.write().await.insert_post(&post).await?;
         }
       },
       _ => {
