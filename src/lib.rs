@@ -1,7 +1,7 @@
 #![feature(backtrace,async_closure)]
 
 use async_std::{prelude::*,sync::{Arc,RwLock},channel,task};
-use std::collections::HashMap;
+use std::collections::{HashMap,HashSet};
 use futures::{io::{AsyncRead,AsyncWrite}};
 use desert::{ToBytes,FromBytes};
 use std::convert::TryInto;
@@ -38,6 +38,7 @@ pub struct Cable<S: Store> {
   next_peer_id: Arc<RwLock<usize>>,
   next_req_id: Arc<RwLock<u32>>,
   listening: Arc<RwLock<HashMap<PeerId,Vec<(ReqId,ChannelOptions)>>>>,
+  requested: Arc<RwLock<HashSet<Hash>>>,
   open_requests: Arc<RwLock<HashMap<u32,Message>>>,
 }
 
@@ -49,6 +50,7 @@ impl<S> Cable<S> where S: Store {
       next_peer_id: Arc::new(RwLock::new(0)),
       next_req_id: Arc::new(RwLock::new(0)),
       listening: Arc::new(RwLock::new(HashMap::new())),
+      requested: Arc::new(RwLock::new(HashSet::new())),
       open_requests: Arc::new(RwLock::new(HashMap::new())),
     }
   }
@@ -106,6 +108,7 @@ impl<S> Cable<S> where S: Store {
   }
   pub async fn handle(&self, peer_id: usize, msg: &Message) -> Result<(),Error> {
     println!["msg={:?}", msg];
+    // todo: forward requests
     match msg {
       Message::ChannelTimeRangeRequest { req_id, channel, time_start, time_end, limit, .. } => {
         let opts = GetPostOptions {
@@ -137,6 +140,12 @@ impl<S> Cable<S> where S: Store {
         let mut store = self.store.write().await;
         let want = store.want(hashes).await?;
         if !want.is_empty() {
+          {
+            let mut mreq = self.requested.write().await;
+            for hash in &want {
+              mreq.insert(hash.clone());
+            }
+          }
           let hreq = Message::HashRequest {
             req_id: *req_id,
             ttl: 1,
@@ -154,10 +163,15 @@ impl<S> Cable<S> where S: Store {
       },
       Message::DataResponse { req_id, data } => {
         for buf in data {
-          // todo: make sure this data block was requested before storing
           if !Post::verify(&buf) { continue }
           let (s,post) = Post::from_bytes(&buf)?;
           if s != buf.len() { continue }
+          let h = post.hash()?;
+          {
+            let mut mreq = self.requested.write().await;
+            if !mreq.contains(&h) { continue } // didn't request this response
+            mreq.remove(&h);
+          }
           self.store.write().await.insert_post(&post).await?;
         }
       },
