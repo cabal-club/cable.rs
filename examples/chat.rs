@@ -1,5 +1,5 @@
 use async_std::{prelude::*,io,task,net};
-use cable::{Cable,Store,MemoryStore,ChannelOptions};
+use cable::{Cable,MemoryStore,ChannelOptions};
 
 type Error = Box<dyn std::error::Error+Send+Sync+'static>;
 
@@ -58,6 +58,6 @@ fn main() -> Result<(),Error> {
   })
 }
 
-fn now() -> u64 {
+fn _now() -> u64 {
   std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
 }

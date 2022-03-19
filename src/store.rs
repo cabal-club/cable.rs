@@ -19,14 +19,14 @@ struct LiveStream {
   options: ChannelOptions,
   sender: channel::Sender<Post>,
   receiver: channel::Receiver<Post>,
-  live_streams: Arc<RwLock<Vec<(ChannelOptions,Self)>>>,
+  live_streams: Arc<RwLock<Vec<Self>>>,
 }
 
 impl LiveStream {
   pub fn new(
     id: usize,
     options: ChannelOptions,
-    live_streams: Arc<RwLock<Vec<(ChannelOptions,Self)>>>,
+    live_streams: Arc<RwLock<Vec<Self>>>,
   ) -> Self {
     let (sender,receiver) = channel::bounded(options.limit);
     Self { id, options, sender, receiver, live_streams }
@@ -35,6 +35,18 @@ impl LiveStream {
     if let Err(_) = self.sender.try_send(post) {}
   }
 }
+impl LiveStream {
+  pub fn matches(&self, post: &Post) -> bool {
+    if Some(&self.options.channel) != post.get_channel() { return false }
+    match (self.options.time_start, self.options.time_end) {
+      (0,0) => true,
+      (0,end) => post.get_timestamp().map(|t| t <= end).unwrap_or(false),
+      (start,0) => post.get_timestamp().map(|t| start <= t).unwrap_or(false),
+      (start,end) => post.get_timestamp().map(|t| start <= t && t <= end).unwrap_or(false),
+    }
+  }
+}
+
 impl Stream for LiveStream {
   type Item = Result<Post,Error>;
   fn poll_next(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
@@ -42,13 +54,12 @@ impl Stream for LiveStream {
     Poll::Ready(Some(Ok(r)))
   }
 }
-
 impl Drop for LiveStream {
   fn drop(&mut self) {
     let live_streams = self.live_streams.clone();
     let id = self.id;
     task::block_on(async move {
-      live_streams.write().await.drain_filter(|(_,s)| s.id == id);
+      live_streams.write().await.drain_filter(|s| s.id == id);
     });
   }
 }
@@ -87,7 +98,7 @@ pub struct MemoryStore {
   data: Arc<RwLock<HashMap<Hash,Payload>>>,
   empty_post_bt: BTreeMap<u64,Vec<Post>>,
   empty_hash_bt: BTreeMap<u64,Vec<Hash>>,
-  live_streams: Arc<RwLock<HashMap<Channel,Arc<RwLock<Vec<(ChannelOptions,LiveStream)>>>>>>,
+  live_streams: Arc<RwLock<HashMap<Channel,Arc<RwLock<Vec<LiveStream>>>>>>,
   live_stream_id: Arc<Mutex<usize>>,
 }
 
@@ -119,7 +130,7 @@ impl Store for MemoryStore {
     self.keypair = keypair;
     Ok(())
   }
-  async fn get_latest_hash(&mut self, channel: &[u8]) -> Result<[u8;32],Error> {
+  async fn get_latest_hash(&mut self, _channel: &[u8]) -> Result<[u8;32],Error> {
     // todo: actually use latest message if available instead of zeros
     Ok([0;32])
   }
@@ -154,8 +165,8 @@ impl Store for MemoryStore {
           self.data.write().await.insert(hash, post.to_bytes()?);
         }
         if let Some(senders) = self.live_streams.read().await.get(channel) {
-          for (opts,stream) in senders.read().await.iter() {
-            if opts.matches(&post) {
+          for stream in senders.read().await.iter() {
+            if stream.matches(&post) {
               stream.send(post.clone());
             }
           }
@@ -182,7 +193,7 @@ impl Store for MemoryStore {
       };
       let live = live_stream.clone();
       task::block_on(async move {
-        live_streams.write().await.push((opts.clone(),live));
+        live_streams.write().await.push(live);
       });
       live_stream
     } else {
@@ -196,7 +207,7 @@ impl Store for MemoryStore {
       let live_streams_c = live_streams.clone();
       let live_stream = task::block_on(async move {
         let live_stream = LiveStream::new(live_stream_id, opts.clone(), live_streams_c.clone());
-        live_streams_c.write().await.push((opts.clone(),live_stream.clone()));
+        live_streams_c.write().await.push(live_stream.clone());
         live_stream
       });
       self.live_streams.write().await.insert(opts.channel.clone(), live_streams);

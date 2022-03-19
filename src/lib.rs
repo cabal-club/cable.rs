@@ -31,17 +31,6 @@ pub struct ChannelOptions {
   pub time_end: u64,
   pub limit: usize,
 }
-impl ChannelOptions {
-  pub fn matches(&self, post: &Post) -> bool {
-    if Some(&self.channel) != post.get_channel() { return false }
-    match (self.time_start, self.time_end) {
-      (0,0) => true,
-      (0,end) => post.get_timestamp().map(|t| t <= end).unwrap_or(false),
-      (start,0) => post.get_timestamp().map(|t| start <= t).unwrap_or(false),
-      (start,end) => post.get_timestamp().map(|t| start <= t && t <= end).unwrap_or(false),
-    }
-  }
-}
 
 #[derive(Clone)]
 pub struct Cable<S: Store> {
@@ -121,7 +110,6 @@ impl<S> Cable<S> where S: Store {
     Ok(())
   }
   pub async fn handle(&mut self, peer_id: usize, msg: &Message) -> Result<(),Error> {
-    println!["msg={:?}", msg];
     // todo: forward requests
     match msg {
       Message::ChannelTimeRangeRequest { req_id, channel, time_start, time_end, limit, .. } => {
@@ -168,14 +156,14 @@ impl<S> Cable<S> where S: Store {
           self.send(peer_id, &hreq).await?;
         }
       },
-      Message::HashRequest { req_id, ttl, hashes } => {
+      Message::HashRequest { req_id, ttl: _, hashes } => {
         let response = Message::DataResponse {
           req_id: *req_id,
           data: self.store.get_data(hashes).await?,
         };
         self.send(peer_id, &response).await?
       },
-      Message::DataResponse { req_id, data } => {
+      Message::DataResponse { req_id: _, data } => {
         for buf in data {
           if !Post::verify(&buf) { continue }
           let (s,post) = Post::from_bytes(&buf)?;
@@ -190,7 +178,7 @@ impl<S> Cable<S> where S: Store {
         }
       },
       _ => {
-        println!["other message type: todo"];
+        //println!["other message type: todo"];
       },
     }
     Ok(())
@@ -215,7 +203,7 @@ impl<S> Cable<S> where S: Store {
     self.broadcast(&m).await?;
     Ok(self.store.get_posts_live(options).await?)
   }
-  pub async fn close_channel(&self, channel: &[u8]) {
+  pub async fn close_channel(&self, _channel: &[u8]) {
     unimplemented![]
   }
   pub async fn get_peer_ids(&self) -> Vec<usize> {
@@ -252,7 +240,6 @@ impl<S> Cable<S> where S: Store {
       let mut cstream = stream.clone();
       task::spawn(async move {
         while let Ok(msg) = recv.recv().await {
-          println!["write {:?}", &msg];
           cstream.write_all(&msg.to_bytes().unwrap()).await.unwrap();
         }
         let res: Result<(),Error> = Ok(());
@@ -268,8 +255,8 @@ impl<S> Cable<S> where S: Store {
       let (_,msg) = Message::from_bytes(&buf)?;
       let mut this = self.clone();
       task::spawn(async move {
-        if let Err(e) = this.handle(peer_id, &msg).await {
-          eprintln!["{}", e];
+        if let Err(_e) = this.handle(peer_id, &msg).await {
+          //eprintln!["{}", e];
         }
       });
     }
