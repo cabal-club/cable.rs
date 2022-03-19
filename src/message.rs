@@ -1,5 +1,5 @@
 use desert::{FromBytes,ToBytes,CountBytes,varint};
-use crate::{ReqId,ReplyId,Hash,Payload,Channel,Error,error::CableErrorKind as E};
+use crate::{ReqId,Hash,Payload,Channel,Error,error::CableErrorKind as E};
 
 #[derive(Clone,Debug)]
 pub enum Message {

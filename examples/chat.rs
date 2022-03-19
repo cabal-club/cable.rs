@@ -1,5 +1,5 @@
 use async_std::{prelude::*,io,task,net};
-use cable::{Cable,MemoryStore,ChannelOptions};
+use cable::{Cable,Store,MemoryStore,ChannelOptions};
 
 type Error = Box<dyn std::error::Error+Send+Sync+'static>;
 
@@ -8,17 +8,25 @@ fn main() -> Result<(),Error> {
 
   task::block_on(async move {
     let store = MemoryStore::default();
-    let cable = Cable::new(Box::new(store));
+    let cable = Cable::new(store);
     {
-      let client = cable.clone();
-      let options = ChannelOptions {
+      let opts = ChannelOptions {
         channel: "default".as_bytes().to_vec(),
         time_start: 0,
         //time_end: now(),
         time_end: 0,
         limit: 20,
       };
-      client.open_channel(&options).await?;
+      let mut client = cable.clone();
+      task::spawn(async move {
+        let mut msg_stream = client.open_channel(&opts).await.unwrap();
+        while let Some(msg) = msg_stream.next().await {
+          println!["msg={:?}", msg];
+        }
+      });
+    }
+    {
+      let mut client = cable.clone();
       task::spawn(async move {
         let stdin = io::stdin();
         let mut line = String::new();

@@ -91,6 +91,28 @@ impl Post {
     let digest = crypto::generichash::hash(&buf, Some(32), None).unwrap();
     Ok(digest.as_ref().try_into()?)
   }
+  pub fn get_timestamp(&self) -> Option<u64> {
+    match &self.body {
+      PostBody::Text { timestamp, .. } => Some(*timestamp),
+      PostBody::Delete { timestamp, .. } => Some(*timestamp),
+      PostBody::Info { timestamp, .. } => Some(*timestamp),
+      PostBody::Topic { timestamp, .. } => Some(*timestamp),
+      PostBody::Join { timestamp, .. } => Some(*timestamp),
+      PostBody::Leave { timestamp, .. } => Some(*timestamp),
+      PostBody::Unrecognized { .. } => None,
+    }
+  }
+  pub fn get_channel<'a>(&'a self) -> Option<&'a Channel> {
+    match &self.body {
+      PostBody::Text { channel, .. } => Some(channel),
+      PostBody::Delete { .. } => None,
+      PostBody::Info { .. } => None,
+      PostBody::Topic { channel, .. } => Some(channel),
+      PostBody::Join { channel, .. } => Some(channel),
+      PostBody::Leave { channel, .. } => Some(channel),
+      PostBody::Unrecognized { .. } => None,
+    }
+  }
 }
 
 impl CountBytes for Post {
