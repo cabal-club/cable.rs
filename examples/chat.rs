@@ -36,6 +36,7 @@ fn main() -> Result<(),Error> {
           let channel = "default".as_bytes();
           let text = line.trim_end().as_bytes();
           client.post_text(channel, &text).await.unwrap();
+          line.clear();
         }
       });
     }
