@@ -22,6 +22,8 @@ mod store;
 pub use store::*;
 mod error;
 pub use error::*;
+mod stream;
+pub use stream::*;
 use length_prefixed_stream::{decode_with_options,DecodeOptions};
 
 #[derive(Clone,Debug,PartialEq)]
