@@ -1,3 +1,4 @@
+mod message;
 mod post;
 
 pub type Channel = Vec<u8>;
