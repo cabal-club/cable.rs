@@ -1,3 +1,11 @@
+mod post;
+
+pub type Channel = Vec<u8>;
+pub type Hash = [u8; 32];
+pub type Text = Vec<u8>;
+pub type Topic = Vec<u8>;
+
+/*
 #![feature(backtrace, async_closure, drain_filter)]
 
 use async_std::{
@@ -317,3 +325,4 @@ where
         Ok(())
     }
 }
+*/

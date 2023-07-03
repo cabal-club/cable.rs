@@ -1,7 +1,25 @@
+/*
 use crate::{error::CableErrorKind as E, Channel, Error, Hash};
 use desert::{varint, CountBytes, FromBytes, ToBytes};
 use sodiumoxide::crypto;
 use std::convert::TryInto;
+*/
+
+//! Post formats for all post types supported by cable.
+//!
+//! Includes type definitions for all post types, as well as post header and
+//! body types. Helper methods are included.
+
+use crate::{Channel, Hash, Text, Topic};
+
+#[derive(Clone, Debug)]
+/// Information self-published by a user.
+pub struct UserInfo {
+    pub key_len: Vec<u8>, // varint
+    pub key: Vec<u8>,
+    pub val_len: Vec<u8>, // varint
+    pub val: Vec<u8>,
+}
 
 #[derive(Clone, Debug)]
 pub struct Post {
@@ -10,46 +28,97 @@ pub struct Post {
 }
 
 #[derive(Clone, Debug)]
+/// The header of a post message.
 pub struct PostHeader {
+    /// Public key that authored this post.
     pub public_key: [u8; 32],
+    /// Signature of the fields that follow.
     pub signature: [u8; 64],
-    pub link: [u8; 32],
+    /// Number of hashes this post links back to you (0+).
+    pub num_links: Vec<u8>, // varint
+    /// Hashes of the latest posts in this channel/context.
+    pub links: Vec<u8>,
+    /// Post type.
+    pub post_type: Vec<u8>, // varint
+    /// Time at which the post was created (in milliseconds since the UNIX Epoch).
+    pub timestamp: Vec<u8>, // varint
 }
+
+// TODO: remember to write validators for post type data.
+// E.g. "A topic field MUST be a valid UTF-8 string, between 0 and 512 codepoints."
 
 #[derive(Clone, Debug)]
+/// The body of a post message.
 pub enum PostBody {
+    /// Post a chat message to a channel.
     Text {
+        /// Length of the channel's name in bytes.
+        channel_len: Vec<u8>, // varint
+        /// Channel name (UTF-8).
         channel: Channel,
-        timestamp: u64,
-        text: Vec<u8>,
+        /// Length of the text field in bytes.
+        text_len: Vec<u8>, // varint
+        /// Chat message text (UTF-8).
+        text: Text,
     },
+    /// Request that peers encountering this post delete the referenced posts
+    /// from their local storage, and not store the referenced posts in the future.
     Delete {
-        timestamp: u64,
-        hash: Hash,
+        /// Number of posts to be deleted (specified by number of hashes).
+        num_deletions: Vec<u8>, // varint
+        /// Concatenated hashes of posts to be deleted.
+        hashes: Vec<u8>,
     },
+    /// Set public information about oneself.
     Info {
-        timestamp: u64,
-        key: Vec<u8>,
-        value: Vec<u8>,
+        /// The complete description of a user's self-published information.
+        info: Vec<UserInfo>,
     },
+    /// Set a topic for a channel.
     Topic {
+        /// Length of the channel's name in bytes.
+        channel_len: Vec<u8>, // varint
+        /// Channel name (UTF-8).
         channel: Channel,
-        timestamp: u64,
-        topic: Vec<u8>,
+        /// Length of the topic field in bytes.
+        topic_len: Vec<u8>, // varint
+        /// Topic content (UTF-8).
+        topic: Topic,
     },
+    /// Publicly announce membership in a channel.
     Join {
+        /// Length of the channel's name in bytes.
+        channel_len: Vec<u8>, // varint
+        /// Channel name (UTF-8).
         channel: Channel,
-        timestamp: u64,
     },
+    /// Publicly announce termination of membership in a channel.
     Leave {
+        /// Length of the channel's name in bytes.
+        channel_len: Vec<u8>, // varint
+        /// Channel name (UTF-8).
         channel: Channel,
-        timestamp: u64,
     },
-    Unrecognized {
-        post_type: u64,
-    },
+    /// A post type which is not recognised as part of the cable specification.
+    Unrecognized { post_type: u64 },
 }
 
+impl Post {
+    /// Return the numeric type identifier for the post.
+    pub fn post_type(&self) -> u64 {
+        match &self.body {
+            PostBody::Text { .. } => 0,
+            PostBody::Delete { .. } => 1,
+            PostBody::Info { .. } => 2,
+            PostBody::Topic { .. } => 3,
+            PostBody::Join { .. } => 4,
+            PostBody::Leave { .. } => 5,
+            PostBody::Unrecognized { post_type } => *post_type,
+        }
+    }
+}
+
+/*
 impl Post {
     pub fn post_type(&self) -> u64 {
         match &self.body {
@@ -366,3 +435,4 @@ impl FromBytes for Post {
         Ok((offset, Post { header, body }))
     }
 }
+*/
