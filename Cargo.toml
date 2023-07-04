@@ -14,3 +14,4 @@ async-trait = "0.1.51"
 
 [dev-dependencies]
 argmap = "1.1.1"
+hex = "0.4.3"
