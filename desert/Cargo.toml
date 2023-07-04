@@ -1,0 +1,9 @@
+[package]
+description = "traits for {de,}serializing compact binary formats"
+documentation = "https://docs.rs/desert"
+edition = "2018"
+keywords = ["binary", "serialize", "deserialize"]
+license = "MIT OR Apache-2.0"
+name = "desert"
+readme = "README.md"
+version = "2.0.1"
