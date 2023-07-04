@@ -1,6 +1,156 @@
+/*
 use crate::{error::CableErrorKind as E, Channel, Error, Hash, Payload, ReqId};
 use desert::{varint, CountBytes, FromBytes, ToBytes};
+*/
 
+//! Message formats for all request and response message types supported by cable.
+//!
+//! Includes type definitions for all request and response message types,
+//! as well as message header and body types. Helper methods are included.
+
+use crate::{post::EncodedPost, Channel, CircuitId, EncodedChannel, Hash, ReqId};
+
+#[derive(Clone, Debug)]
+pub struct Message {
+    pub header: MessageHeader,
+    pub body: MessageBody,
+}
+
+#[derive(Clone, Debug)]
+/// The header of a request or response message.
+pub struct MessageHeader {
+    /// Number of bytes in the rest of the message, not including the `msg_len` field.
+    pub msg_len: Vec<u8>, // varint
+    /// Type identifier for the message (controls which fields follow the header).
+    pub msg_type: Vec<u8>, // varint
+    /// ID of a circuit for an established path; `[0,0,0,0]` for no circuit (current default).
+    pub circuit_id: CircuitId,
+    /// Unique ID of this request (randomly-assigned).
+    pub req_id: ReqId,
+}
+
+#[derive(Clone, Debug)]
+/// The body of a request or response message.
+pub enum MessageBody {
+    Request {
+        /// Number of network hops remaining (must be between 0 and 16).
+        ttl: Vec<u8>, // varint
+        body: RequestBody,
+    },
+    Response {
+        body: ResponseBody,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub enum RequestBody {
+    /// Request a set of posts by their hashes.
+    ///
+    /// Message type (`msg_type`) is `2`.
+    Post {
+        /// Number of hashes being requested.
+        hash_count: Vec<u8>, // varint
+        /// Hashes being requested (concatenated together).
+        hashes: Vec<Hash>,
+    },
+    /// Conclude a given request identified by `req_id` and stop receiving responses for that request.
+    ///
+    /// Message type (`msg_type`) is `3`.
+    Cancel {
+        /// The `req_id` of the request to be cancelled.
+        cancel_id: ReqId, // varint
+    },
+    /// Request chat messages and chat message deletions written to a channel
+    /// between a start and end time, optionally subscribing to future chat messages.
+    ///
+    /// Message type (`msg_type`) is `4`.
+    ChannelTimeRange {
+        /// Length of the channel's name in bytes.
+        channel_len: Vec<u8>, // varint
+        /// Channel name (UTF-8).
+        channel: Channel,
+        /// Beginning of the time range (in milliseconds since the UNIX Epoch).
+        ///
+        /// This represents the age of the oldest post the requester is interested in.
+        time_start: Vec<u8>, // varint
+        /// End of the time range (in milliseconds since the UNIX Epoch).
+        ///
+        /// This represents the age of the newest post the requester is interested in.
+        ///
+        /// A value of `0` is a keep-alive request; the responder should continue
+        /// to send chat messages as they learn of them in the future.
+        time_end: Vec<u8>, // varint
+        /// Maximum numbers of hashes to return.
+        limit: Vec<u8>, // varint
+    },
+    /// Request posts that describe the current state of a channel and it's members,
+    /// and optionally subscribe to future state changes.
+    ///
+    /// Message type (`msg_type`) is `5`.
+    ChannelState {
+        /// Length of the channel's name in bytes.
+        channel_len: Vec<u8>, // varint
+        /// Channel name (UTF-8).
+        channel: Channel,
+        /// Whether to include live/future state hashes.
+        ///
+        /// This value must be set to either `0` or `1`.
+        ///
+        /// A value of `0` means that only the latest state posts will be included
+        /// and the request will not be held open.
+        ///
+        /// A value of `1` means that the responder will respond with future channel
+        /// state changes as they become known to the responder. The request will be
+        /// held open indefinitely on both the requester and responder side until
+        /// either a Cancel Request is issued by the requester or the responder
+        /// elects to end the request by sending a Hash Response with hash_count = 0.
+        future: Vec<u8>, // varint
+    },
+    /// Request a list of known channels from peers.
+    ///
+    /// The combination of `offset` and `limit` fields allows clients to paginate
+    /// through the list of all channel names known by a peer.
+    ///
+    /// Message type (`msg_type`) is `6`.
+    ChannelList {
+        /// Number of channel names to skip (`0` to skip none).
+        offset: Vec<u8>, // varint
+        /// Maximum number of channel names to return.
+        ///
+        /// If set to `0`, the responder must respond with all known channels
+        /// (after skipping the first `offset` entries).
+        limit: Vec<u8>, // varint
+    },
+}
+
+#[derive(Clone, Debug)]
+pub enum ResponseBody {
+    /// Respond with a list of zero or more hashes.
+    ///
+    /// Message type (`msg_type`) is `0`.
+    Hash {
+        /// Number of hashes in the response.
+        hash_count: Vec<u8>, // varint
+        /// Hashes being sent in response (concatenated together).
+        hashes: Vec<Hash>,
+    },
+    /// Respond with a list of posts in response to a Post Request.
+    ///
+    /// Message type (`msg_type`) is `1`.
+    Post {
+        /// A list of encoded posts, with each one including the length and data of the post.
+        posts: Vec<EncodedPost>,
+    },
+    /// Respond with a list of names of known channels.
+    ///
+    /// Message type (`msg_type`) is `7`.
+    ChannelList {
+        /// A list of encoded channels, with each one including the length and name of a channel.
+        channels: Vec<EncodedChannel>,
+    },
+}
+
+/*
 #[derive(Clone, Debug)]
 pub enum Message {
     HashResponse {
@@ -438,3 +588,4 @@ impl FromBytes for Message {
         })
     }
 }
+*/

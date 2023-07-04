@@ -22,13 +22,22 @@ pub struct UserInfo {
 }
 
 #[derive(Clone, Debug)]
+/// The length and data of an encoded post.
+pub struct EncodedPost {
+    /// The length of the post in bytes.
+    pub post_len: Vec<u8>, // varint
+    /// The post data.
+    pub post_data: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
 pub struct Post {
     pub header: PostHeader,
     pub body: PostBody,
 }
 
 #[derive(Clone, Debug)]
-/// The header of a post message.
+/// The header of a post.
 pub struct PostHeader {
     /// Public key that authored this post.
     pub public_key: [u8; 32],
@@ -48,7 +57,7 @@ pub struct PostHeader {
 // E.g. "A topic field MUST be a valid UTF-8 string, between 0 and 512 codepoints."
 
 #[derive(Clone, Debug)]
-/// The body of a post message.
+/// The body of a post.
 pub enum PostBody {
     /// Post a chat message to a channel.
     Text {
@@ -67,7 +76,7 @@ pub enum PostBody {
         /// Number of posts to be deleted (specified by number of hashes).
         num_deletions: Vec<u8>, // varint
         /// Concatenated hashes of posts to be deleted.
-        hashes: Vec<u8>,
+        hashes: Vec<Hash>,
     },
     /// Set public information about oneself.
     Info {
