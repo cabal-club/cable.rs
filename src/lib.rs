@@ -2,9 +2,20 @@ mod message;
 mod post;
 
 pub type Channel = Vec<u8>;
+pub type CircuitId = [u8; 4];
 pub type Hash = [u8; 32];
+pub type ReqId = [u8; 4];
 pub type Text = Vec<u8>;
 pub type Topic = Vec<u8>;
+
+#[derive(Clone, Debug)]
+/// The length and data of an encoded channel name.
+pub struct EncodedChannel {
+    /// The length of the channel name in bytes.
+    pub channel_len: Vec<u8>, // varint
+    /// The channel name data.
+    pub channel: Channel,
+}
 
 /*
 #![feature(backtrace, async_closure, drain_filter)]
