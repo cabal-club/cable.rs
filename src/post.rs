@@ -22,6 +22,15 @@ pub struct UserInfo {
 }
 
 #[derive(Clone, Debug)]
+/// The length and data of an encoded post.
+pub struct EncodedPost {
+    /// The length of the post in bytes.
+    pub post_len: Vec<u8>, // varint
+    /// The post data.
+    pub post_data: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
 pub struct Post {
     pub header: PostHeader,
     pub body: PostBody,
