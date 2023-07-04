@@ -147,11 +147,24 @@ impl Post {
             _ => false,
         }
     }
+
+    /// Return the channel name associated with a post.
+    pub fn get_channel(&self) -> Option<&Channel> {
+        match &self.body {
+            PostBody::Text { channel, .. } => Some(channel),
+            PostBody::Delete { .. } => None,
+            PostBody::Info { .. } => None,
+            PostBody::Topic { channel, .. } => Some(channel),
+            PostBody::Join { channel, .. } => Some(channel),
+            PostBody::Leave { channel, .. } => Some(channel),
+            PostBody::Unrecognized { .. } => None,
+        }
+    }
 }
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use super::Post;
 
     use hex::FromHex;
 
