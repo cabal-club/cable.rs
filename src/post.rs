@@ -118,6 +118,19 @@ pub enum PostBody {
 }
 
 impl Post {
+    /// Return the channel name associated with a post.
+    pub fn get_channel(&self) -> Option<&Channel> {
+        match &self.body {
+            PostBody::Text { channel, .. } => Some(channel),
+            PostBody::Delete { .. } => None,
+            PostBody::Info { .. } => None,
+            PostBody::Topic { channel, .. } => Some(channel),
+            PostBody::Join { channel, .. } => Some(channel),
+            PostBody::Leave { channel, .. } => Some(channel),
+            PostBody::Unrecognized { .. } => None,
+        }
+    }
+
     /// Return the numeric type identifier for the post.
     pub fn post_type(&self) -> u64 {
         match &self.body {
@@ -147,19 +160,6 @@ impl Post {
             _ => false,
         }
     }
-
-    /// Return the channel name associated with a post.
-    pub fn get_channel(&self) -> Option<&Channel> {
-        match &self.body {
-            PostBody::Text { channel, .. } => Some(channel),
-            PostBody::Delete { .. } => None,
-            PostBody::Info { .. } => None,
-            PostBody::Topic { channel, .. } => Some(channel),
-            PostBody::Join { channel, .. } => Some(channel),
-            PostBody::Leave { channel, .. } => Some(channel),
-            PostBody::Unrecognized { .. } => None,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -168,13 +168,15 @@ mod test {
 
     use hex::FromHex;
 
+    const TEXT_POST_HEX_BINARY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d06725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b300500764656661756c740d68e282ac6c6c6f20776f726c64";
+
     #[test]
     fn test_verify_post() {
         // Encoded text post.
-        let buffer = <Vec<u8>>::from_hex("25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d06725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b300500764656661756c740d68e282ac6c6c6f20776f726c64").unwrap();
+        let buffer = <Vec<u8>>::from_hex(TEXT_POST_HEX_BINARY).unwrap();
 
-        let verify_result = Post::verify(&buffer);
-        assert_eq!(verify_result, true);
+        let result = Post::verify(&buffer);
+        assert_eq!(result, true);
     }
 }
 
