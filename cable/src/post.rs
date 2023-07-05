@@ -329,6 +329,81 @@ impl ToBytes for Post {
     }
 }
 
+impl CountBytes for Post {
+    fn count_bytes(&self) -> usize {
+        let post_type = self.post_type();
+
+        // Count the post header bytes.
+        let header_size = 32 // Public key.
+            + 64 // Signature.
+            + varint::length(self.header.num_links) // Number of links.
+            + self.header.links.len() // Links.
+            + varint::length(post_type) // Post type.
+            + varint::length(self.header.timestamp); // Timestamp.
+
+        // Count the post body bytes.
+        let body_size = match &self.body {
+            PostBody::Text {
+                channel_len,
+                channel,
+                text_len,
+                text,
+            } => {
+                varint::length(*channel_len)
+                    + channel.len()
+                    + varint::length(*text_len)
+                    + text.len()
+            }
+            PostBody::Delete {
+                num_deletions,
+                hashes,
+            } => varint::length(*num_deletions) + hashes.len(),
+            PostBody::Info { info } => {
+                let mut info_len = 0;
+
+                for UserInfo {
+                    key_len,
+                    key,
+                    val_len,
+                    val,
+                } in info
+                {
+                    info_len +=
+                        varint::length(*key_len) + key.len() + varint::length(*val_len) + val.len();
+                }
+
+                info_len
+            }
+            PostBody::Topic {
+                channel_len,
+                channel,
+                topic_len,
+                topic,
+            } => {
+                varint::length(*channel_len)
+                    + channel.len()
+                    + varint::length(*topic_len)
+                    + topic.len()
+            }
+            PostBody::Join {
+                channel_len,
+                channel,
+            } => varint::length(*channel_len) + channel.len(),
+            PostBody::Leave {
+                channel_len,
+                channel,
+            } => varint::length(*channel_len) + channel.len(),
+            PostBody::Unrecognized { .. } => 0,
+        };
+
+        header_size + body_size
+    }
+
+    fn count_from_bytes(_buf: &[u8]) -> Result<usize, Error> {
+        unimplemented![]
+    }
+}
+
 /*
 impl CountBytes for Post {
     fn count_bytes(&self) -> usize {
