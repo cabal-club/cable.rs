@@ -18,15 +18,15 @@ use sodiumoxide::crypto::{
 
 use crate::{
     error::{CableErrorKind, Error},
-    Channel, Hash, Text, Topic,
+    Channel, ChannelLen, Hash, Text, Topic,
 };
 
 #[derive(Clone, Debug)]
 /// Information self-published by a user.
 pub struct UserInfo {
-    pub key_len: Vec<u8>, // varint
+    pub key_len: u64, // varint
     pub key: Vec<u8>,
-    pub val_len: Vec<u8>, // varint
+    pub val_len: u64, // varint
     pub val: Vec<u8>,
 }
 
@@ -34,7 +34,7 @@ pub struct UserInfo {
 /// The length and data of an encoded post.
 pub struct EncodedPost {
     /// The length of the post in bytes.
-    pub post_len: Vec<u8>, // varint
+    pub post_len: u64, // varint
     /// The post data.
     pub post_data: Vec<u8>,
 }
@@ -45,6 +45,9 @@ pub struct Post {
     pub body: PostBody,
 }
 
+// TODO: think about appropriate integer sizes.
+// E.g. Should `num_links` and `post_type` be `u64` or smaller?
+
 #[derive(Clone, Debug)]
 /// The header of a post.
 pub struct PostHeader {
@@ -53,13 +56,16 @@ pub struct PostHeader {
     /// Signature of the fields that follow.
     pub signature: [u8; 64],
     /// Number of hashes this post links back to (0+).
-    pub num_links: Vec<u8>, // varint
+    // TODO: Consider removing `varint` comments; may be confusing.
+    // These fields are eventually encoded as `varint` but are not expressed in
+    // that form when decoded.
+    pub num_links: u64, // varint
     /// Hashes of the latest posts in this channel/context.
-    pub links: Vec<u8>,
+    pub links: Vec<Hash>,
     /// Post type.
-    pub post_type: Vec<u8>, // varint
+    pub post_type: u64, // varint
     /// Time at which the post was created (in milliseconds since the UNIX Epoch).
-    pub timestamp: Vec<u8>, // varint
+    pub timestamp: u64, // varint
 }
 
 // TODO: remember to write validators for post type data.
@@ -71,11 +77,11 @@ pub enum PostBody {
     /// Post a chat message to a channel.
     Text {
         /// Length of the channel's name in bytes.
-        channel_len: Vec<u8>, // varint
+        channel_len: ChannelLen, // varint
         /// Channel name (UTF-8).
         channel: Channel,
         /// Length of the text field in bytes.
-        text_len: Vec<u8>, // varint
+        text_len: u64, // varint
         /// Chat message text (UTF-8).
         text: Text,
     },
@@ -83,7 +89,7 @@ pub enum PostBody {
     /// from their local storage, and not store the referenced posts in the future.
     Delete {
         /// Number of posts to be deleted (specified by number of hashes).
-        num_deletions: Vec<u8>, // varint
+        num_deletions: u64, // varint
         /// Concatenated hashes of posts to be deleted.
         hashes: Vec<Hash>,
     },
@@ -95,25 +101,25 @@ pub enum PostBody {
     /// Set a topic for a channel.
     Topic {
         /// Length of the channel's name in bytes.
-        channel_len: Vec<u8>, // varint
+        channel_len: ChannelLen, // varint
         /// Channel name (UTF-8).
         channel: Channel,
         /// Length of the topic field in bytes.
-        topic_len: Vec<u8>, // varint
+        topic_len: u64, // varint
         /// Topic content (UTF-8).
         topic: Topic,
     },
     /// Publicly announce membership in a channel.
     Join {
         /// Length of the channel's name in bytes.
-        channel_len: Vec<u8>, // varint
+        channel_len: ChannelLen, // varint
         /// Channel name (UTF-8).
         channel: Channel,
     },
     /// Publicly announce termination of membership in a channel.
     Leave {
         /// Length of the channel's name in bytes.
-        channel_len: Vec<u8>, // varint
+        channel_len: ChannelLen, // varint
         /// Channel name (UTF-8).
         channel: Channel,
     },

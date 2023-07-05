@@ -3,6 +3,7 @@ mod message;
 mod post;
 
 pub type Channel = Vec<u8>;
+pub type ChannelLen = u64;
 pub type CircuitId = [u8; 4];
 pub type Hash = [u8; 32];
 pub type ReqId = [u8; 4];
