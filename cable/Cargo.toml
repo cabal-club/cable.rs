@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 sodiumoxide = "0.2.7"
-desert = "2.0.0"
+desert = { path = "../desert" }
 async-std = { version = "1.10.0", features = ["attributes","unstable"] }
 futures = "0.3.13"
 #length-prefixed-stream = "1.0.0"
