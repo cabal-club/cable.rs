@@ -74,6 +74,27 @@ pub struct PostHeader {
     pub timestamp: u64, // varint
 }
 
+impl PostHeader {
+    /// Convenience method to construct a `PostHeader`.
+    pub fn new(
+        public_key: [u8; 32],
+        signature: [u8; 64],
+        num_links: u64,
+        links: Vec<u8>,
+        post_type: u64,
+        timestamp: u64,
+    ) -> Self {
+        PostHeader {
+            public_key,
+            signature,
+            num_links,
+            links,
+            post_type,
+            timestamp,
+        }
+    }
+}
+
 // TODO: remember to write validators for post type data.
 // E.g. "A topic field MUST be a valid UTF-8 string, between 0 and 512 codepoints."
 
@@ -140,6 +161,11 @@ pub enum PostBody {
 }
 
 impl Post {
+    /// Convenience method to construct a `Post` from a header and body.
+    pub fn new(header: PostHeader, body: PostBody) -> Self {
+        Post { header, body }
+    }
+
     /// Return the channel name associated with a post.
     pub fn get_channel(&self) -> Option<&Channel> {
         match &self.body {
@@ -226,12 +252,8 @@ impl ToBytes for Post {
         offset += varint::encode(self.header.num_links, &mut buf[offset..])?;
 
         // Write the links bytes to the buffer and increment the offset.
-        //
-        // NOTE: I feel unsure about the correctness here.
-        // We might be adding the encoded bytes twice...
-        // Check with tests.
-        //offset += varint::encode(self.header.links.len() as u64, &mut buf[offset..])?;
         buf[offset..offset + self.header.links.len()].copy_from_slice(&self.header.links);
+        offset += self.header.links.len();
 
         // Encode the post type as a varint, write the resulting bytes to the
         // buffer and increment the offset.
@@ -325,6 +347,7 @@ impl ToBytes for Post {
                 .raise();
             }
         }
+
         Ok(offset)
     }
 }
@@ -404,186 +427,14 @@ impl CountBytes for Post {
     }
 }
 
-/*
-impl CountBytes for Post {
-    fn count_bytes(&self) -> usize {
-        let post_type = self.post_type();
-
-        let header_size = 32
-            + 64
-            + varint::length(self.header.num_links.len() as u64)
-            + 32 * self.header.num_links.len()
-            + varint::length(post_type)
-            + varint::length(self.header.timestamp);
-
-        let body_size = varint::length(post_type)
-            + match &self.body {
-                PostBody::Text {
-                    channel,
-                    timestamp,
-                    text,
-                } => {
-                    varint::length(channel.len() as u64)
-                        + channel.len()
-                        + varint::length(*timestamp)
-                        + varint::length(text.len() as u64)
-                        + text.len()
-                }
-                PostBody::Delete { timestamp, hash } => varint::length(*timestamp) + hash.len(),
-                PostBody::Info {
-                    timestamp,
-                    key,
-                    value,
-                } => {
-                    varint::length(*timestamp)
-                        + varint::length(key.len() as u64)
-                        + key.len()
-                        + varint::length(value.len() as u64)
-                        + value.len()
-                }
-                PostBody::Topic {
-                    channel,
-                    timestamp,
-                    topic,
-                } => {
-                    varint::length(channel.len() as u64)
-                        + channel.len()
-                        + varint::length(*timestamp)
-                        + varint::length(topic.len() as u64)
-                        + topic.len()
-                }
-                PostBody::Join { channel, timestamp } => {
-                    varint::length(channel.len() as u64)
-                        + channel.len()
-                        + varint::length(*timestamp)
-                }
-                PostBody::Leave { channel, timestamp } => {
-                    varint::length(channel.len() as u64)
-                        + channel.len()
-                        + varint::length(*timestamp)
-                }
-                PostBody::Unrecognized { .. } => 0,
-            };
-        header_size + body_size
-    }
-    fn count_from_bytes(_buf: &[u8]) -> Result<usize, Error> {
-        unimplemented![]
-    }
-}
-
-impl FromBytes for Post {
-    fn from_bytes(buf: &[u8]) -> Result<(usize, Self), Error> {
-        let mut offset = 0;
-        let header = {
-            let mut public_key = [0; 32];
-            public_key.copy_from_slice(&buf[offset..offset + 32]);
-            offset += 32;
-            let mut signature = [0; 64];
-            signature.copy_from_slice(&buf[offset..offset + 64]);
-            offset += 64;
-            let mut link = [0; 32];
-            link.copy_from_slice(&buf[offset..offset + 32]);
-            offset += 32;
-            PostHeader {
-                public_key,
-                signature,
-                link,
-            }
-        };
-        let (s, post_type) = varint::decode(&buf[offset..])?;
-        offset += s;
-        let body = match post_type {
-            0 => {
-                let (s, channel_len) = varint::decode(&buf[offset..])?;
-                offset += s;
-                let channel = buf[offset..offset + channel_len as usize].to_vec();
-                offset += channel_len as usize;
-                let (s, timestamp) = varint::decode(&buf[offset..])?;
-                offset += s;
-                let (s, text_len) = varint::decode(&buf[offset..])?;
-                offset += s;
-                let text = buf[offset..offset + text_len as usize].to_vec();
-                offset += text_len as usize;
-                PostBody::Text {
-                    channel,
-                    timestamp,
-                    text,
-                }
-            }
-            1 => {
-                let (s, timestamp) = varint::decode(&buf[offset..])?;
-                offset += s;
-                let mut hash = [0; 32];
-                hash.copy_from_slice(&buf[offset..offset + 32]);
-                offset += 32;
-                PostBody::Delete { timestamp, hash }
-            }
-            2 => {
-                let (s, timestamp) = varint::decode(&buf[offset..])?;
-                offset += s;
-                let (s, key_len) = varint::decode(&buf[offset..])?;
-                offset += s;
-                let key = buf[offset..offset + key_len as usize].to_vec();
-                offset += key_len as usize;
-                let (s, value_len) = varint::decode(&buf[offset..])?;
-                offset += s;
-                let value = buf[offset..offset + value_len as usize].to_vec();
-                offset += value_len as usize;
-                PostBody::Info {
-                    timestamp,
-                    key,
-                    value,
-                }
-            }
-            3 => {
-                let (s, channel_len) = varint::decode(&buf[offset..])?;
-                offset += s;
-                let channel = buf[offset..offset + channel_len as usize].to_vec();
-                offset += channel_len as usize;
-                let (s, timestamp) = varint::decode(&buf[offset..])?;
-                offset += s;
-                let (s, topic_len) = varint::decode(&buf[offset..])?;
-                offset += s;
-                let topic = buf[offset..offset + topic_len as usize].to_vec();
-                offset += topic_len as usize;
-                PostBody::Topic {
-                    channel,
-                    timestamp,
-                    topic,
-                }
-            }
-            4 => {
-                let (s, channel_len) = varint::decode(&buf[offset..])?;
-                offset += s;
-                let channel = buf[offset..offset + channel_len as usize].to_vec();
-                offset += channel_len as usize;
-                let (s, timestamp) = varint::decode(&buf[offset..])?;
-                offset += s;
-                PostBody::Join { channel, timestamp }
-            }
-            5 => {
-                let (s, channel_len) = varint::decode(&buf[offset..])?;
-                offset += s;
-                let channel = buf[offset..offset + channel_len as usize].to_vec();
-                offset += channel_len as usize;
-                let (s, timestamp) = varint::decode(&buf[offset..])?;
-                offset += s;
-                PostBody::Leave { channel, timestamp }
-            }
-            post_type => PostBody::Unrecognized { post_type },
-        };
-        Ok((offset, Post { header, body }))
-    }
-}
-*/
-
 #[cfg(test)]
 mod test {
-    use super::Post;
+    use super::{Post, PostBody, PostHeader, ToBytes};
 
     use hex::FromHex;
 
     const TEXT_POST_HEX_BINARY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d06725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b300500764656661756c740d68e282ac6c6c6f20776f726c64";
+    const PUBLIC_KEY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0";
 
     #[test]
     fn test_verify_post() {
@@ -592,6 +443,59 @@ mod test {
 
         let result = Post::verify(&buffer);
         assert_eq!(result, true);
+    }
+
+    #[test]
+    fn test_text_post_to_bytes() {
+        // TODO: Return `Result` so and replace `unwrap()` with `?`.
+
+        // Field values sourced from https://github.com/cabal-club/cable.js#examples.
+
+        /* HEADER FIELD VALUES */
+
+        let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
+        let signature = <[u8; 64]>::from_hex("6725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05").unwrap();
+        let num_links = 1;
+        let links =
+            <Vec<u8>>::from_hex("5049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b3")
+                .unwrap();
+        let post_type = 0;
+        let timestamp = 80;
+
+        /* BODY FIELD VALUES */
+
+        let channel: Vec<u8> = "default".to_string().into();
+        let channel_len = channel.len() as u64;
+        let text: Vec<u8> = "h€llo world".to_string().into();
+        let text_len = text.len() as u64;
+
+        // Test vector binary.
+        let expected_bytes = <Vec<u8>>::from_hex("25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d06725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b300500764656661756c740d68e282ac6c6c6f20776f726c64").unwrap();
+
+        // Construct a new post header.
+        let header = PostHeader::new(
+            public_key, signature, num_links, links, post_type, timestamp,
+        );
+
+        // Construct a new post body.
+        let body = PostBody::Text {
+            channel_len,
+            channel,
+            text_len,
+            text,
+        };
+
+        // Construct a new post.
+        let post = Post::new(header, body);
+        // Convert the post to bytes.
+        let post_bytes = post.to_bytes().unwrap();
+
+        // Ensure the number of generated post bytes matches the number of
+        // expected bytes.
+        assert_eq!(expected_bytes.len(), post_bytes.len());
+
+        // Ensure the generated post bytes match the expected bytes.
+        assert_eq!(expected_bytes, post_bytes);
     }
 }
 
