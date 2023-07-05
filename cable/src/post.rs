@@ -61,7 +61,13 @@ pub struct PostHeader {
     // that form when decoded.
     pub num_links: u64, // varint
     /// Hashes of the latest posts in this channel/context.
-    pub links: Vec<Hash>,
+    // NOTE: I would prefer to represent this field as `Vec<Hash>`.
+    // That results in a `Vec<[u8; 32]>`, which needs to be flattened when
+    // copying to a buffer. `.flatten()` exists for this purpose but is
+    // currently only available on nightly (unstable).
+    // Using a `Vec<u8>` for now. See if there is another way.
+    //pub links: Vec<Hash>,
+    pub links: Vec<u8>,
     /// Post type.
     pub post_type: u64, // varint
     /// Time at which the post was created (in milliseconds since the UNIX Epoch).
@@ -91,7 +97,13 @@ pub enum PostBody {
         /// Number of posts to be deleted (specified by number of hashes).
         num_deletions: u64, // varint
         /// Concatenated hashes of posts to be deleted.
-        hashes: Vec<Hash>,
+        // NOTE: I would prefer to represent this field as `Vec<Hash>`.
+        // That results in a `Vec<[u8; 32]>`, which needs to be flattened when
+        // copying to a buffer. `.flatten()` exists for this purpose but is
+        // currently only available on nightly (unstable).
+        // Using a `Vec<u8>` for now. See if there is another way.
+        //hashes: Vec<Hash>,
+        hashes: Vec<u8>,
     },
     /// Set public information about oneself.
     Info {
@@ -199,6 +211,8 @@ impl ToBytes for Post {
         // link).
         assert_eq![self.header.links.len() % 32, 0];
 
+        /* POST HEADER BYTES */
+
         // Write the public key bytes to the buffer and increment the offset.
         buf[offset..offset + 32].copy_from_slice(&self.header.public_key);
         offset += self.header.public_key.len();
@@ -209,11 +223,15 @@ impl ToBytes for Post {
 
         // Encode num_links as a varint, write the resulting bytes to the
         // buffer and increment the offset.
-        offset += varint::encode(self.header.num_links.len() as u64, &mut buf[offset..])?;
+        offset += varint::encode(self.header.num_links, &mut buf[offset..])?;
 
         // Write the links bytes to the buffer and increment the offset.
-        buf[offset..offset + self.header.num_links].copy_from_slice(&self.header.links);
-        offset += self.header.links.len();
+        //
+        // NOTE: I feel unsure about the correctness here.
+        // We might be adding the encoded bytes twice...
+        // Check with tests.
+        //offset += varint::encode(self.header.links.len() as u64, &mut buf[offset..])?;
+        buf[offset..offset + self.header.links.len()].copy_from_slice(&self.header.links);
 
         // Encode the post type as a varint, write the resulting bytes to the
         // buffer and increment the offset.
@@ -221,64 +239,84 @@ impl ToBytes for Post {
 
         // Encode the timestamp as a varint, write the resulting bytes to the
         // buffer and increment the offset.
-        offset += varint::encode(self.header.timestamp as u64, &mut buf[offset..])?;
+        offset += varint::encode(self.header.timestamp, &mut buf[offset..])?;
+
+        /* POST BODY BYTES */
 
         match &self.body {
             PostBody::Text {
+                channel_len,
                 channel,
-                timestamp,
+                text_len,
                 text,
             } => {
-                offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
+                offset += varint::encode(*channel_len, &mut buf[offset..])?;
                 buf[offset..offset + channel.len()].copy_from_slice(channel);
                 offset += channel.len();
-                offset += varint::encode(*timestamp, &mut buf[offset..])?;
-                offset += varint::encode(text.len() as u64, &mut buf[offset..])?;
+
+                offset += varint::encode(*text_len, &mut buf[offset..])?;
                 buf[offset..offset + text.len()].copy_from_slice(text);
                 offset += text.len();
             }
-            PostBody::Delete { timestamp, hash } => {
-                offset += varint::encode(*timestamp, &mut buf[offset..])?;
-                buf[offset..offset + hash.len()].copy_from_slice(hash);
-                offset += hash.len();
-            }
-            PostBody::Info {
-                timestamp,
-                key,
-                value,
+            PostBody::Delete {
+                num_deletions,
+                hashes,
             } => {
-                offset += varint::encode(*timestamp, &mut buf[offset..])?;
-                offset += varint::encode(key.len() as u64, &mut buf[offset..])?;
-                buf[offset..offset + key.len()].copy_from_slice(key);
-                offset += key.len();
-                offset += varint::encode(value.len() as u64, &mut buf[offset..])?;
-                buf[offset..offset + value.len()].copy_from_slice(value);
-                offset += value.len();
+                offset += varint::encode(*num_deletions, &mut buf[offset..])?;
+                buf[offset..offset + hashes.len()].copy_from_slice(&hashes);
+                offset += hashes.len();
+            }
+            PostBody::Info { info } => {
+                for UserInfo {
+                    key_len,
+                    key,
+                    val_len,
+                    val,
+                } in info
+                {
+                    offset += varint::encode(*key_len, &mut buf[offset..])?;
+                    offset += varint::encode(key.len() as u64, &mut buf[offset..])?;
+                    buf[offset..offset + key.len()].copy_from_slice(key);
+                    offset += key.len();
+                    offset += varint::encode(*val_len, &mut buf[offset..])?;
+                    // TODO: Check that this line is necessary; may be made
+                    // redundant by previous LOC.
+                    offset += varint::encode(val.len() as u64, &mut buf[offset..])?;
+                    buf[offset..offset + val.len()].copy_from_slice(val);
+                    offset += val.len();
+                }
             }
             PostBody::Topic {
+                channel_len,
                 channel,
-                timestamp,
+                topic_len,
                 topic,
             } => {
-                offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
+                offset += varint::encode(*channel_len, &mut buf[offset..])?;
                 buf[offset..offset + channel.len()].copy_from_slice(channel);
                 offset += channel.len();
-                offset += varint::encode(*timestamp, &mut buf[offset..])?;
+                offset += varint::encode(*topic_len, &mut buf[offset..])?;
+                // TODO: Check that this line is necessary; may be made
+                // redundant by previous LOC.
                 offset += varint::encode(topic.len() as u64, &mut buf[offset..])?;
                 buf[offset..offset + topic.len()].copy_from_slice(topic);
                 offset += topic.len();
             }
-            PostBody::Join { channel, timestamp } => {
-                offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
+            PostBody::Join {
+                channel_len,
+                channel,
+            } => {
+                offset += varint::encode(*channel_len, &mut buf[offset..])?;
                 buf[offset..offset + channel.len()].copy_from_slice(channel);
                 offset += channel.len();
-                offset += varint::encode(*timestamp, &mut buf[offset..])?;
             }
-            PostBody::Leave { channel, timestamp } => {
-                offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
+            PostBody::Leave {
+                channel_len,
+                channel,
+            } => {
+                offset += varint::encode(*channel_len, &mut buf[offset..])?;
                 buf[offset..offset + channel.len()].copy_from_slice(channel);
                 offset += channel.len();
-                offset += varint::encode(*timestamp, &mut buf[offset..])?;
             }
             PostBody::Unrecognized { post_type } => {
                 return CableErrorKind::PostWriteUnrecognizedType {
