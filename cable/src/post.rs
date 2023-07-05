@@ -24,9 +24,9 @@ use crate::{
 #[derive(Clone, Debug)]
 /// Information self-published by a user.
 pub struct UserInfo {
-    pub key_len: u64, // varint
+    pub key_len: u64,
     pub key: Vec<u8>,
-    pub val_len: u64, // varint
+    pub val_len: u64,
     pub val: Vec<u8>,
 }
 
@@ -34,7 +34,7 @@ pub struct UserInfo {
 /// The length and data of an encoded post.
 pub struct EncodedPost {
     /// The length of the post in bytes.
-    pub post_len: u64, // varint
+    pub post_len: u64,
     /// The post data.
     pub post_data: Vec<u8>,
 }
@@ -55,11 +55,10 @@ pub struct PostHeader {
     pub public_key: [u8; 32],
     /// Signature of the fields that follow.
     pub signature: [u8; 64],
+    // TODO: Consider removing this field.
+    // Can be inferred from `links`.
     /// Number of hashes this post links back to (0+).
-    // TODO: Consider removing `varint` comments; may be confusing.
-    // These fields are eventually encoded as `varint` but are not expressed in
-    // that form when decoded.
-    pub num_links: u64, // varint
+    pub num_links: u64,
     /// Hashes of the latest posts in this channel/context.
     // NOTE: I would prefer to represent this field as `Vec<Hash>`.
     // That results in a `Vec<[u8; 32]>`, which needs to be flattened when
@@ -69,9 +68,9 @@ pub struct PostHeader {
     //pub links: Vec<Hash>,
     pub links: Vec<u8>,
     /// Post type.
-    pub post_type: u64, // varint
+    pub post_type: u64,
     /// Time at which the post was created (in milliseconds since the UNIX Epoch).
-    pub timestamp: u64, // varint
+    pub timestamp: u64,
 }
 
 impl PostHeader {
@@ -104,19 +103,20 @@ pub enum PostBody {
     /// Post a chat message to a channel.
     Text {
         /// Length of the channel's name in bytes.
-        channel_len: ChannelLen, // varint
+        channel_len: ChannelLen,
         /// Channel name (UTF-8).
         channel: Channel,
         /// Length of the text field in bytes.
-        text_len: u64, // varint
+        text_len: u64,
         /// Chat message text (UTF-8).
         text: Text,
     },
     /// Request that peers encountering this post delete the referenced posts
     /// from their local storage, and not store the referenced posts in the future.
     Delete {
+        // TODO: Remove this field. Can be calculated from the length of `hashes`.
         /// Number of posts to be deleted (specified by number of hashes).
-        num_deletions: u64, // varint
+        num_deletions: u64,
         /// Concatenated hashes of posts to be deleted.
         // NOTE: I would prefer to represent this field as `Vec<Hash>`.
         // That results in a `Vec<[u8; 32]>`, which needs to be flattened when
@@ -134,25 +134,25 @@ pub enum PostBody {
     /// Set a topic for a channel.
     Topic {
         /// Length of the channel's name in bytes.
-        channel_len: ChannelLen, // varint
+        channel_len: ChannelLen,
         /// Channel name (UTF-8).
         channel: Channel,
         /// Length of the topic field in bytes.
-        topic_len: u64, // varint
+        topic_len: u64,
         /// Topic content (UTF-8).
         topic: Topic,
     },
     /// Publicly announce membership in a channel.
     Join {
         /// Length of the channel's name in bytes.
-        channel_len: ChannelLen, // varint
+        channel_len: ChannelLen,
         /// Channel name (UTF-8).
         channel: Channel,
     },
     /// Publicly announce termination of membership in a channel.
     Leave {
         /// Length of the channel's name in bytes.
-        channel_len: ChannelLen, // varint
+        channel_len: ChannelLen,
         /// Channel name (UTF-8).
         channel: Channel,
     },
@@ -284,6 +284,7 @@ impl ToBytes for Post {
                 num_deletions,
                 hashes,
             } => {
+                println!("{:?}", hashes);
                 offset += varint::encode(*num_deletions, &mut buf[offset..])?;
                 buf[offset..offset + hashes.len()].copy_from_slice(hashes);
                 offset += hashes.len();
@@ -433,11 +434,13 @@ mod test {
 
     use hex::FromHex;
 
-    const TEXT_POST_HEX_BINARY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d06725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b300500764656661756c740d68e282ac6c6c6f20776f726c64";
     const PUBLIC_KEY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0";
+    const TEXT_POST_HEX_BINARY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d06725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b300500764656661756c740d68e282ac6c6c6f20776f726c64";
+    const DELETE_POST_HEX_BINARY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0affe77e3b3156cda7feea042269bb7e93f5031662c70610d37baa69132b4150c18d67cb2ac24fb0f9be0a6516e53ba2f3bbc5bd8e7a1bff64d9c78ce0c2e4205015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b301500315ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e597fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db689c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa";
+    const POST_HASH: &str = "5049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b3";
 
     #[test]
-    fn test_verify_post() {
+    fn verify_post() {
         // Encoded text post.
         let buffer = <Vec<u8>>::from_hex(TEXT_POST_HEX_BINARY).unwrap();
 
@@ -446,7 +449,7 @@ mod test {
     }
 
     #[test]
-    fn test_text_post_to_bytes() {
+    fn text_post_to_bytes() {
         // TODO: Return `Result` so and replace `unwrap()` with `?`.
 
         // Field values sourced from https://github.com/cabal-club/cable.js#examples.
@@ -456,9 +459,7 @@ mod test {
         let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
         let signature = <[u8; 64]>::from_hex("6725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05").unwrap();
         let num_links = 1;
-        let links =
-            <Vec<u8>>::from_hex("5049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b3")
-                .unwrap();
+        let links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
         let post_type = 0;
         let timestamp = 80;
 
@@ -468,9 +469,6 @@ mod test {
         let channel_len = channel.len() as u64;
         let text: Vec<u8> = "h€llo world".to_string().into();
         let text_len = text.len() as u64;
-
-        // Test vector binary.
-        let expected_bytes = <Vec<u8>>::from_hex("25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d06725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b300500764656661756c740d68e282ac6c6c6f20776f726c64").unwrap();
 
         // Construct a new post header.
         let header = PostHeader::new(
@@ -489,6 +487,70 @@ mod test {
         let post = Post::new(header, body);
         // Convert the post to bytes.
         let post_bytes = post.to_bytes().unwrap();
+
+        // Test vector binary.
+        let expected_bytes = <Vec<u8>>::from_hex(TEXT_POST_HEX_BINARY).unwrap();
+
+        // Ensure the number of generated post bytes matches the number of
+        // expected bytes.
+        assert_eq!(expected_bytes.len(), post_bytes.len());
+
+        // Ensure the generated post bytes match the expected bytes.
+        assert_eq!(expected_bytes, post_bytes);
+    }
+
+    #[test]
+    fn delete_post_to_bytes() {
+        /* HEADER FIELD VALUES */
+
+        let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
+        let signature = <[u8; 64]>::from_hex("affe77e3b3156cda7feea042269bb7e93f5031662c70610d37baa69132b4150c18d67cb2ac24fb0f9be0a6516e53ba2f3bbc5bd8e7a1bff64d9c78ce0c2e4205").unwrap();
+        let num_links = 1;
+        let links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
+        let post_type = 1;
+        let timestamp = 80;
+
+        /* BODY FIELD VALUES */
+
+        // Concatenate the hashes into a single `Vec<u8>`.
+        let mut hashes =
+            <Vec<u8>>::from_hex("15ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e5")
+                .unwrap();
+        hashes.append(
+            &mut <Vec<u8>>::from_hex(
+                "97fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db68",
+            )
+            .unwrap(),
+        );
+        hashes.append(
+            &mut <Vec<u8>>::from_hex(
+                "9c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa",
+            )
+            .unwrap(),
+        );
+
+        // Define number of hashes.
+        // TODO: Calculate this according to the length of `hashes`.
+        let num_deletions = 3;
+
+        // Construct a new post header.
+        let header = PostHeader::new(
+            public_key, signature, num_links, links, post_type, timestamp,
+        );
+
+        // Construct a new post body.
+        let body = PostBody::Delete {
+            num_deletions,
+            hashes,
+        };
+
+        // Construct a new post.
+        let post = Post::new(header, body);
+        // Convert the post to bytes.
+        let post_bytes = post.to_bytes().unwrap();
+
+        // Test vector binary.
+        let expected_bytes = <Vec<u8>>::from_hex(DELETE_POST_HEX_BINARY).unwrap();
 
         // Ensure the number of generated post bytes matches the number of
         // expected bytes.
