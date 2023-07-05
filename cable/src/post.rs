@@ -285,7 +285,7 @@ impl ToBytes for Post {
                 hashes,
             } => {
                 offset += varint::encode(*num_deletions, &mut buf[offset..])?;
-                buf[offset..offset + hashes.len()].copy_from_slice(&hashes);
+                buf[offset..offset + hashes.len()].copy_from_slice(hashes);
                 offset += hashes.len();
             }
             PostBody::Info { info } => {
