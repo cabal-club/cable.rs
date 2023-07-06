@@ -24,10 +24,23 @@ use crate::{
 #[derive(Clone, Debug)]
 /// Information self-published by a user.
 pub struct UserInfo {
+    // TODO: Remove this field. Can be calculated from the length of `key`.
     pub key_len: u64,
     pub key: Vec<u8>,
+    // TODO: Remove this field. Can be calculated from the length of `val`.
     pub val_len: u64,
     pub val: Vec<u8>,
+}
+
+impl UserInfo {
+    pub fn new(key_len: u64, key: Vec<u8>, val_len: u64, val: Vec<u8>) -> Self {
+        UserInfo {
+            key_len,
+            key,
+            val_len,
+            val,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -298,13 +311,9 @@ impl ToBytes for Post {
                     val,
                 } in info
                 {
-                    offset += varint::encode(*key_len, &mut buf[offset..])?;
                     offset += varint::encode(key.len() as u64, &mut buf[offset..])?;
                     buf[offset..offset + key.len()].copy_from_slice(key);
                     offset += key.len();
-                    offset += varint::encode(*val_len, &mut buf[offset..])?;
-                    // TODO: Check that this line is necessary; may be made
-                    // redundant by previous LOC.
                     offset += varint::encode(val.len() as u64, &mut buf[offset..])?;
                     buf[offset..offset + val.len()].copy_from_slice(val);
                     offset += val.len();
@@ -431,13 +440,14 @@ impl CountBytes for Post {
 
 #[cfg(test)]
 mod test {
-    use super::{Post, PostBody, PostHeader, ToBytes};
+    use super::{Post, PostBody, PostHeader, ToBytes, UserInfo};
 
     use hex::FromHex;
 
     const PUBLIC_KEY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0";
     const TEXT_POST_HEX_BINARY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d06725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b300500764656661756c740d68e282ac6c6c6f20776f726c64";
     const DELETE_POST_HEX_BINARY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0affe77e3b3156cda7feea042269bb7e93f5031662c70610d37baa69132b4150c18d67cb2ac24fb0f9be0a6516e53ba2f3bbc5bd8e7a1bff64d9c78ce0c2e4205015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b301500315ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e597fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db689c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa";
+    const INFO_POST_HEX_BINARY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0f70273779147a3b756407d5660ed2e8e2975abc5ab224fb152aa2bfb3dd331740a66e0718cd580bc94978c1c3cd4524ad8cb2f4cca80df481010c3ef834ac700015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b30250046e616d65066361626c6572";
     const POST_HASH: &str = "5049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b3";
 
     #[test]
@@ -552,6 +562,69 @@ mod test {
 
         // Test vector binary.
         let expected_bytes = <Vec<u8>>::from_hex(DELETE_POST_HEX_BINARY).unwrap();
+
+        // Ensure the number of generated post bytes matches the number of
+        // expected bytes.
+        assert_eq!(expected_bytes.len(), post_bytes.len());
+
+        // Ensure the generated post bytes match the expected bytes.
+        assert_eq!(expected_bytes, post_bytes);
+    }
+
+    /*
+        {
+      "name": "post/info",
+      "type": "post",
+      "id": 2,
+      "binary": "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0f70273779147a3b756407d5660ed2e8e2975abc5ab224fb152aa2bfb3dd331740a66e0718cd580bc94978c1c3cd4524ad8cb2f4cca80df481010c3ef834ac700015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b30250046e616d65066361626c6572",
+      "obj": {
+        "publicKey": "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0",
+        "signature": "f70273779147a3b756407d5660ed2e8e2975abc5ab224fb152aa2bfb3dd331740a66e0718cd580bc94978c1c3cd4524ad8cb2f4cca80df481010c3ef834ac700",
+        "links": [
+          "5049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b3"
+        ],
+        "postType": 2,
+        "timestamp": 80,
+        "key": "name",
+        "value": "cabler"
+      }
+    }
+        */
+    #[test]
+    fn info_post_to_bytes() {
+        /* HEADER FIELD VALUES */
+
+        let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
+        let signature = <[u8; 64]>::from_hex("f70273779147a3b756407d5660ed2e8e2975abc5ab224fb152aa2bfb3dd331740a66e0718cd580bc94978c1c3cd4524ad8cb2f4cca80df481010c3ef834ac700").unwrap();
+        let num_links = 1;
+        let links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
+        let post_type = 2;
+        let timestamp = 80;
+
+        /* BODY FIELD VALUES */
+        let key = "name".to_string();
+        let key_len = key.len() as u64;
+        let val = "cabler".to_string();
+        let val_len = val.len() as u64;
+        let user_info = UserInfo::new(key_len, key.into(), val_len, val.into());
+
+        // Construct a new post header.
+        let header = PostHeader::new(
+            public_key, signature, num_links, links, post_type, timestamp,
+        );
+
+        // Construct a new post body.
+        let body = PostBody::Info {
+            info: vec![user_info],
+        };
+
+        // Construct a new post.
+        let post = Post::new(header, body);
+        // Convert the post to bytes.
+        let post_bytes = post.to_bytes().unwrap();
+
+        // Test vector binary.
+        let expected_bytes = <Vec<u8>>::from_hex(INFO_POST_HEX_BINARY).unwrap();
 
         // Ensure the number of generated post bytes matches the number of
         // expected bytes.
