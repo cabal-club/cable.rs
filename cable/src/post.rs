@@ -276,6 +276,10 @@ impl ToBytes for Post {
                     buf[offset..offset + val.len()].copy_from_slice(val);
                     offset += val.len();
                 }
+
+                // Indicate the end of the key-value pairs by setting the final
+                // key_len to 0.
+                offset += varint::encode(0, &mut buf[offset..])?;
             }
             PostBody::Topic { channel, topic } => {
                 offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
@@ -304,6 +308,179 @@ impl ToBytes for Post {
         }
 
         Ok(offset)
+    }
+}
+
+impl FromBytes for Post {
+    /// Read bytes from the given buffer (byte array), returning the total
+    /// number of bytes and the decoded `Post` type.
+    fn from_bytes(buf: &[u8]) -> Result<(usize, Self), Error> {
+        let mut offset = 0;
+
+        /* POST HEADER BYTES */
+
+        // Read the public key bytes from the buffer and increment the offset.
+        let mut public_key = [0; 32];
+        public_key.copy_from_slice(&buf[offset..offset + 32]);
+        offset += 32;
+
+        // Read the signature bytes from the buffer and increment the offset.
+        let mut signature = [0; 64];
+        signature.copy_from_slice(&buf[offset..offset + 64]);
+        offset += 64;
+
+        // Read the number of links byte from the buffer and increment the offset.
+        // This value encodes the number of links to follow.
+        let (s, num_links) = varint::decode(&buf[offset..])?;
+        offset += s;
+
+        // Read the links bytes from the buffer and increment the offset.
+        let links = buf[offset..offset + num_links as usize].to_vec();
+        offset += num_links as usize;
+
+        // Read the post-type byte from the buffer and increment the offset.
+        let (s, post_type) = varint::decode(&buf[offset..])?;
+        offset += s;
+
+        // Read the timestamp byte from the buffer and increment the offset.
+        let (s, timestamp) = varint::decode(&buf[offset..])?;
+        offset += s;
+
+        // Read the post header field bytes.
+        let header = PostHeader {
+            public_key,
+            signature,
+            links,
+            post_type,
+            timestamp,
+        };
+
+        /* POST BODY BYTES */
+
+        // Read post body field bytes.
+        let body = match post_type {
+            // Text.
+            0 => {
+                // Read the channel length byte and increment the offset.
+                let (s, channel_len) = varint::decode(&buf[offset..])?;
+                offset += s;
+
+                // Read the channel bytes and increment the offset.
+                let channel = buf[offset..offset + channel_len as usize].to_vec();
+                offset += channel_len as usize;
+
+                // Read the text length byte and increment the offset.
+                let (s, text_len) = varint::decode(&buf[offset..])?;
+                offset += s;
+
+                // Read the text bytes and increment the offset.
+                let text = buf[offset..offset + text_len as usize].to_vec();
+                offset += text_len as usize;
+
+                PostBody::Text { channel, text }
+            }
+            // Delete.
+            1 => {
+                // Read the number of hashes byte and increment the offset.
+                let (s, num_hashes) = varint::decode(&buf[offset..])?;
+                offset += s;
+
+                // Calculate the number of hashes bytes.
+                let hashes_len = (num_hashes * 32) as usize;
+
+                // Read the hashes bytes and increment the offset.
+                let hashes = buf[offset..offset + hashes_len].to_vec();
+                offset += hashes_len as usize;
+
+                PostBody::Delete { hashes }
+            }
+            // Info.
+            2 => {
+                // Create an empty vector to store key-value pairs.
+                let mut info: Vec<UserInfo> = Vec::new();
+
+                // Since there may be several key-value pairs, we use a loop
+                // to iterate over the bytes.
+                loop {
+                    // Read the key length byte and increment the offset.
+                    let (s, key_len) = varint::decode(&buf[offset..])?;
+                    offset += s;
+
+                    // A key length value of 0 indicates that there are no
+                    // more key-value pairs to come.
+                    if key_len == 0 {
+                        // Break out of the loop.
+                        break;
+                    }
+
+                    // Read the key bytes and increment the offset.
+                    let key = buf[offset..offset + key_len as usize].to_vec();
+                    offset += key_len as usize;
+
+                    // Read the val length byte and increment the offset.
+                    let (s, val_len) = varint::decode(&buf[offset..])?;
+                    offset += s;
+
+                    // Read the val bytes and increment the offset.
+                    let val = buf[offset..offset + val_len as usize].to_vec();
+                    offset += val_len as usize;
+
+                    let key_val = UserInfo::new(key, val);
+
+                    info.push(key_val);
+                }
+
+                PostBody::Info { info }
+            }
+            // Topic.
+            3 => {
+                // Read the channel length byte and increment the offset.
+                let (s, channel_len) = varint::decode(&buf[offset..])?;
+                offset += s;
+
+                // Read the channel bytes and increment the offset.
+                let channel = buf[offset..offset + channel_len as usize].to_vec();
+                offset += channel_len as usize;
+
+                // Read the topic length byte and increment the offset.
+                let (s, topic_len) = varint::decode(&buf[offset..])?;
+                offset += s;
+
+                // Read the topic bytes and increment the offset.
+                let topic = buf[offset..offset + topic_len as usize].to_vec();
+                offset += topic_len as usize;
+
+                PostBody::Topic { channel, topic }
+            }
+            // Join.
+            4 => {
+                // Read the channel length byte and increment the offset.
+                let (s, channel_len) = varint::decode(&buf[offset..])?;
+                offset += s;
+
+                // Read the channel bytes and increment the offset.
+                let channel = buf[offset..offset + channel_len as usize].to_vec();
+                offset += s;
+
+                PostBody::Join { channel }
+            }
+            // Leave.
+            5 => {
+                // Read the channel length byte and increment the offset.
+                let (s, channel_len) = varint::decode(&buf[offset..])?;
+                offset += s;
+
+                // Read the channel bytes and increment the offset.
+                let channel = buf[offset..offset + channel_len as usize].to_vec();
+                offset += s;
+
+                PostBody::Leave { channel }
+            }
+            // Unrecognized.
+            post_type => PostBody::Unrecognized { post_type },
+        };
+
+        Ok((offset, Post { header, body }))
     }
 }
 
@@ -633,110 +810,3 @@ mod test {
         assert_eq!(expected_bytes, post_bytes);
     }
 }
-
-/*
-impl FromBytes for Post {
-    fn from_bytes(buf: &[u8]) -> Result<(usize, Self), Error> {
-        let mut offset = 0;
-        let header = {
-            let mut public_key = [0; 32];
-            public_key.copy_from_slice(&buf[offset..offset + 32]);
-            offset += 32;
-            let mut signature = [0; 64];
-            signature.copy_from_slice(&buf[offset..offset + 64]);
-            offset += 64;
-            let mut link = [0; 32];
-            link.copy_from_slice(&buf[offset..offset + 32]);
-            offset += 32;
-            PostHeader {
-                public_key,
-                signature,
-                link,
-            }
-        };
-        let (s, post_type) = varint::decode(&buf[offset..])?;
-        offset += s;
-        let body = match post_type {
-            0 => {
-                let (s, channel_len) = varint::decode(&buf[offset..])?;
-                offset += s;
-                let channel = buf[offset..offset + channel_len as usize].to_vec();
-                offset += channel_len as usize;
-                let (s, timestamp) = varint::decode(&buf[offset..])?;
-                offset += s;
-                let (s, text_len) = varint::decode(&buf[offset..])?;
-                offset += s;
-                let text = buf[offset..offset + text_len as usize].to_vec();
-                offset += text_len as usize;
-                PostBody::Text {
-                    channel,
-                    timestamp,
-                    text,
-                }
-            }
-            1 => {
-                let (s, timestamp) = varint::decode(&buf[offset..])?;
-                offset += s;
-                let mut hash = [0; 32];
-                hash.copy_from_slice(&buf[offset..offset + 32]);
-                offset += 32;
-                PostBody::Delete { timestamp, hash }
-            }
-            2 => {
-                let (s, timestamp) = varint::decode(&buf[offset..])?;
-                offset += s;
-                let (s, key_len) = varint::decode(&buf[offset..])?;
-                offset += s;
-                let key = buf[offset..offset + key_len as usize].to_vec();
-                offset += key_len as usize;
-                let (s, value_len) = varint::decode(&buf[offset..])?;
-                offset += s;
-                let value = buf[offset..offset + value_len as usize].to_vec();
-                offset += value_len as usize;
-                PostBody::Info {
-                    timestamp,
-                    key,
-                    value,
-                }
-            }
-            3 => {
-                let (s, channel_len) = varint::decode(&buf[offset..])?;
-                offset += s;
-                let channel = buf[offset..offset + channel_len as usize].to_vec();
-                offset += channel_len as usize;
-                let (s, timestamp) = varint::decode(&buf[offset..])?;
-                offset += s;
-                let (s, topic_len) = varint::decode(&buf[offset..])?;
-                offset += s;
-                let topic = buf[offset..offset + topic_len as usize].to_vec();
-                offset += topic_len as usize;
-                PostBody::Topic {
-                    channel,
-                    timestamp,
-                    topic,
-                }
-            }
-            4 => {
-                let (s, channel_len) = varint::decode(&buf[offset..])?;
-                offset += s;
-                let channel = buf[offset..offset + channel_len as usize].to_vec();
-                offset += channel_len as usize;
-                let (s, timestamp) = varint::decode(&buf[offset..])?;
-                offset += s;
-                PostBody::Join { channel, timestamp }
-            }
-            5 => {
-                let (s, channel_len) = varint::decode(&buf[offset..])?;
-                offset += s;
-                let channel = buf[offset..offset + channel_len as usize].to_vec();
-                offset += channel_len as usize;
-                let (s, timestamp) = varint::decode(&buf[offset..])?;
-                offset += s;
-                PostBody::Leave { channel, timestamp }
-            }
-            post_type => PostBody::Unrecognized { post_type },
-        };
-        Ok((offset, Post { header, body }))
-    }
-}
-*/
