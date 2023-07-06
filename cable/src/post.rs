@@ -367,6 +367,8 @@ mod test {
 
     use hex::FromHex;
 
+    // Field values sourced from https://github.com/cabal-club/cable.js#examples.
+
     const PUBLIC_KEY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0";
     const POST_HASH: &str = "5049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b3";
     const TEXT_POST_HEX_BINARY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d06725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b300500764656661756c740d68e282ac6c6c6f20776f726c64";
@@ -374,6 +376,7 @@ mod test {
     const INFO_POST_HEX_BINARY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0f70273779147a3b756407d5660ed2e8e2975abc5ab224fb152aa2bfb3dd331740a66e0718cd580bc94978c1c3cd4524ad8cb2f4cca80df481010c3ef834ac700015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b30250046e616d65066361626c6572";
     const TOPIC_POST_HEX_BINARY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0bf7578e781caee4ca708281645b291a2100c4f2138f0e0ac98bc2b4a414b4ba8dca08285751114b05f131421a1745b648c43b17b05392593237dfacc8dff5208015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b303500764656661756c743b696e74726f6475636520796f757273656c6620746f2074686520667269656e646c792063726f7764206f66206c696b656d696e64656420666f6c78";
     const JOIN_POST_HEX_BINARY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d064425f10fa34c1e14b6101491772d3c5f15f720a952dd56c27d5ad52f61f695130ce286de73e332612b36242339b61c9e12397f5dcc94c79055c7e1cb1dbfb08015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b304500764656661756c74";
+    const LEAVE_POST_HEX_BINARY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b305500764656661756c74";
 
     #[test]
     fn verify_post() {
@@ -387,8 +390,6 @@ mod test {
     #[test]
     fn text_post_to_bytes() {
         // TODO: Return `Result` and replace `unwrap()` with `?`.
-
-        // Field values sourced from https://github.com/cabal-club/cable.js#examples.
 
         /* HEADER FIELD VALUES */
 
@@ -585,6 +586,44 @@ mod test {
 
         // Test vector binary.
         let expected_bytes = <Vec<u8>>::from_hex(JOIN_POST_HEX_BINARY).unwrap();
+
+        // Ensure the number of generated post bytes matches the number of
+        // expected bytes.
+        assert_eq!(expected_bytes.len(), post_bytes.len());
+
+        // Ensure the generated post bytes match the expected bytes.
+        assert_eq!(expected_bytes, post_bytes);
+    }
+
+    #[test]
+    fn leave_post_to_bytes() {
+        /* HEADER FIELD VALUES */
+
+        let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
+        let signature = <[u8; 64]>::from_hex("abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805").unwrap();
+        let links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
+        let post_type = 5;
+        let timestamp = 80;
+
+        // Construct a new post header.
+        let header = PostHeader::new(public_key, signature, links, post_type, timestamp);
+
+        /* BODY FIELD VALUES */
+
+        let channel = "default".to_string();
+
+        // Construct a new post body.
+        let body = PostBody::Leave {
+            channel: channel.into(),
+        };
+
+        // Construct a new post.
+        let post = Post::new(header, body);
+        // Convert the post to bytes.
+        let post_bytes = post.to_bytes().unwrap();
+
+        // Test vector binary.
+        let expected_bytes = <Vec<u8>>::from_hex(LEAVE_POST_HEX_BINARY).unwrap();
 
         // Ensure the number of generated post bytes matches the number of
         // expected bytes.
