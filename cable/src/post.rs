@@ -21,7 +21,7 @@ use crate::{
     Channel, Hash, Text, Topic,
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 /// Information self-published by a user.
 pub struct UserInfo {
     pub key: Vec<u8>,
@@ -917,6 +917,51 @@ mod test {
             assert_eq!(hashes, expected_hashes);
         } else {
             panic!("Incorrect post type: expected delete");
+        }
+    }
+
+    #[test]
+    fn bytes_to_info_post() {
+        // Test vector binary.
+        let post_bytes = <Vec<u8>>::from_hex(INFO_POST_HEX_BINARY).unwrap();
+
+        // Decode the byte slice to a `Post`.
+        let (_, post) = Post::from_bytes(&post_bytes).unwrap();
+
+        /* HEADER FIELD VALUES */
+
+        let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
+        let expected_signature = <[u8; 64]>::from_hex("f70273779147a3b756407d5660ed2e8e2975abc5ab224fb152aa2bfb3dd331740a66e0718cd580bc94978c1c3cd4524ad8cb2f4cca80df481010c3ef834ac700").unwrap();
+        let expected_links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
+        let expected_post_type = 2;
+        let expected_timestamp = 80;
+
+        let PostHeader {
+            public_key,
+            signature,
+            links,
+            post_type,
+            timestamp,
+        } = post.header;
+
+        // Ensure the post header fields are correct.
+        assert_eq!(public_key, expected_public_key);
+        assert_eq!(signature, expected_signature);
+        assert_eq!(links, expected_links);
+        assert_eq!(post_type, expected_post_type);
+        assert_eq!(timestamp, expected_timestamp);
+
+        /* BODY FIELD VALUES */
+
+        let key = "name".to_string();
+        let val = "cabler".to_string();
+        let expected_info = vec![UserInfo::new(key, val)];
+
+        // Ensure the post body fields are correct.
+        if let PostBody::Info { info } = post.body {
+            assert_eq!(info, expected_info);
+        } else {
+            panic!("Incorrect post type: expected info");
         }
     }
 }
