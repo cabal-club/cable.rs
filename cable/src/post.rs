@@ -18,7 +18,7 @@ use sodiumoxide::crypto::{
 
 use crate::{
     error::{CableErrorKind, Error},
-    Channel, ChannelLen, Hash, Text, Topic,
+    Channel, Hash, Text, Topic,
 };
 
 #[derive(Clone, Debug)]
