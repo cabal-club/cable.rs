@@ -24,21 +24,16 @@ use crate::{
 #[derive(Clone, Debug)]
 /// Information self-published by a user.
 pub struct UserInfo {
-    // TODO: Remove this field. Can be calculated from the length of `key`.
-    pub key_len: u64,
     pub key: Vec<u8>,
-    // TODO: Remove this field. Can be calculated from the length of `val`.
-    pub val_len: u64,
     pub val: Vec<u8>,
 }
 
 impl UserInfo {
-    pub fn new(key_len: u64, key: Vec<u8>, val_len: u64, val: Vec<u8>) -> Self {
+    /// Convenience method to construct `UserInfo`.
+    pub fn new<T: Into<Vec<u8>>, U: Into<Vec<u8>>>(key: T, val: U) -> Self {
         UserInfo {
-            key_len,
-            key,
-            val_len,
-            val,
+            key: key.into(),
+            val: val.into(),
         }
     }
 }
@@ -304,13 +299,7 @@ impl ToBytes for Post {
                 offset += hashes.len();
             }
             PostBody::Info { info } => {
-                for UserInfo {
-                    key_len,
-                    key,
-                    val_len,
-                    val,
-                } in info
-                {
+                for UserInfo { key, val } in info {
                     offset += varint::encode(key.len() as u64, &mut buf[offset..])?;
                     buf[offset..offset + key.len()].copy_from_slice(key);
                     offset += key.len();
@@ -395,15 +384,11 @@ impl CountBytes for Post {
             PostBody::Info { info } => {
                 let mut info_len = 0;
 
-                for UserInfo {
-                    key_len,
-                    key,
-                    val_len,
-                    val,
-                } in info
-                {
-                    info_len +=
-                        varint::length(*key_len) + key.len() + varint::length(*val_len) + val.len();
+                for UserInfo { key, val } in info {
+                    info_len += varint::length(key.len() as u64)
+                        + key.len()
+                        + varint::length(val.len() as u64)
+                        + val.len();
                 }
 
                 info_len
@@ -603,10 +588,8 @@ mod test {
 
         /* BODY FIELD VALUES */
         let key = "name".to_string();
-        let key_len = key.len() as u64;
         let val = "cabler".to_string();
-        let val_len = val.len() as u64;
-        let user_info = UserInfo::new(key_len, key.into(), val_len, val.into());
+        let user_info = UserInfo::new(key, val);
 
         // Construct a new post header.
         let header = PostHeader::new(
