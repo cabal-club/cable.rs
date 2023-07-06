@@ -368,10 +368,11 @@ mod test {
     use hex::FromHex;
 
     const PUBLIC_KEY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0";
+    const POST_HASH: &str = "5049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b3";
     const TEXT_POST_HEX_BINARY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d06725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b300500764656661756c740d68e282ac6c6c6f20776f726c64";
     const DELETE_POST_HEX_BINARY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0affe77e3b3156cda7feea042269bb7e93f5031662c70610d37baa69132b4150c18d67cb2ac24fb0f9be0a6516e53ba2f3bbc5bd8e7a1bff64d9c78ce0c2e4205015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b301500315ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e597fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db689c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa";
     const INFO_POST_HEX_BINARY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0f70273779147a3b756407d5660ed2e8e2975abc5ab224fb152aa2bfb3dd331740a66e0718cd580bc94978c1c3cd4524ad8cb2f4cca80df481010c3ef834ac700015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b30250046e616d65066361626c6572";
-    const POST_HASH: &str = "5049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b3";
+    const TOPIC_POST_HEX_BINARY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0bf7578e781caee4ca708281645b291a2100c4f2138f0e0ac98bc2b4a414b4ba8dca08285751114b05f131421a1745b648c43b17b05392593237dfacc8dff5208015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b303500764656661756c743b696e74726f6475636520796f757273656c6620746f2074686520667269656e646c792063726f7764206f66206c696b656d696e64656420666f6c78";
 
     #[test]
     fn verify_post() {
@@ -396,13 +397,13 @@ mod test {
         let post_type = 0;
         let timestamp = 80;
 
+        // Construct a new post header.
+        let header = PostHeader::new(public_key, signature, links, post_type, timestamp);
+
         /* BODY FIELD VALUES */
 
         let channel: Vec<u8> = "default".to_string().into();
         let text: Vec<u8> = "h€llo world".to_string().into();
-
-        // Construct a new post header.
-        let header = PostHeader::new(public_key, signature, links, post_type, timestamp);
 
         // Construct a new post body.
         let body = PostBody::Text { channel, text };
@@ -433,6 +434,9 @@ mod test {
         let post_type = 1;
         let timestamp = 80;
 
+        // Construct a new post header.
+        let header = PostHeader::new(public_key, signature, links, post_type, timestamp);
+
         /* BODY FIELD VALUES */
 
         // Concatenate the hashes into a single `Vec<u8>`.
@@ -451,9 +455,6 @@ mod test {
             )
             .unwrap(),
         );
-
-        // Construct a new post header.
-        let header = PostHeader::new(public_key, signature, links, post_type, timestamp);
 
         // Construct a new post body.
         let body = PostBody::Delete { hashes };
@@ -474,25 +475,6 @@ mod test {
         assert_eq!(expected_bytes, post_bytes);
     }
 
-    /*
-        {
-      "name": "post/info",
-      "type": "post",
-      "id": 2,
-      "binary": "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0f70273779147a3b756407d5660ed2e8e2975abc5ab224fb152aa2bfb3dd331740a66e0718cd580bc94978c1c3cd4524ad8cb2f4cca80df481010c3ef834ac700015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b30250046e616d65066361626c6572",
-      "obj": {
-        "publicKey": "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0",
-        "signature": "f70273779147a3b756407d5660ed2e8e2975abc5ab224fb152aa2bfb3dd331740a66e0718cd580bc94978c1c3cd4524ad8cb2f4cca80df481010c3ef834ac700",
-        "links": [
-          "5049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b3"
-        ],
-        "postType": 2,
-        "timestamp": 80,
-        "key": "name",
-        "value": "cabler"
-      }
-    }
-        */
     #[test]
     fn info_post_to_bytes() {
         /* HEADER FIELD VALUES */
@@ -503,13 +485,14 @@ mod test {
         let post_type = 2;
         let timestamp = 80;
 
+        // Construct a new post header.
+        let header = PostHeader::new(public_key, signature, links, post_type, timestamp);
+
         /* BODY FIELD VALUES */
+
         let key = "name".to_string();
         let val = "cabler".to_string();
         let user_info = UserInfo::new(key, val);
-
-        // Construct a new post header.
-        let header = PostHeader::new(public_key, signature, links, post_type, timestamp);
 
         // Construct a new post body.
         let body = PostBody::Info {
@@ -523,6 +506,65 @@ mod test {
 
         // Test vector binary.
         let expected_bytes = <Vec<u8>>::from_hex(INFO_POST_HEX_BINARY).unwrap();
+
+        // Ensure the number of generated post bytes matches the number of
+        // expected bytes.
+        assert_eq!(expected_bytes.len(), post_bytes.len());
+
+        // Ensure the generated post bytes match the expected bytes.
+        assert_eq!(expected_bytes, post_bytes);
+    }
+
+    /*
+        {
+      "name": "post/topic",
+      "type": "post",
+      "id": 3,
+      "binary": "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0bf7578e781caee4ca708281645b291a2100c4f2138f0e0ac98bc2b4a414b4ba8dca08285751114b05f131421a1745b648c43b17b05392593237dfacc8dff5208015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b303500764656661756c743b696e74726f6475636520796f757273656c6620746f2074686520667269656e646c792063726f7764206f66206c696b656d696e64656420666f6c78",
+      "obj": {
+        "publicKey": "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0",
+        "signature": "bf7578e781caee4ca708281645b291a2100c4f2138f0e0ac98bc2b4a414b4ba8dca08285751114b05f131421a1745b648c43b17b05392593237dfacc8dff5208",
+        "links": [
+          "5049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b3"
+        ],
+        "postType": 3,
+        "channel": "default",
+        "timestamp": 80,
+        "topic": "introduce yourself to the friendly crowd of likeminded folx"
+      }
+    }
+        */
+    #[test]
+    fn topic_post_to_bytes() {
+        /* HEADER FIELD VALUES */
+
+        let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
+        let signature = <[u8; 64]>::from_hex("bf7578e781caee4ca708281645b291a2100c4f2138f0e0ac98bc2b4a414b4ba8dca08285751114b05f131421a1745b648c43b17b05392593237dfacc8dff5208").unwrap();
+        let links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
+        let post_type = 3;
+        let timestamp = 80;
+
+        // Construct a new post header.
+        let header = PostHeader::new(public_key, signature, links, post_type, timestamp);
+
+        /* BODY FIELD VALUES */
+
+        let channel = "default".to_string();
+        let topic = "introduce yourself to the friendly crowd of likeminded folx".to_string();
+
+        // Construct a new post body.
+        let body = PostBody::Topic {
+            channel: channel.into(),
+            topic: topic.into(),
+        };
+
+        // Construct a new post.
+        let post = Post::new(header, body);
+        // Convert the post to bytes.
+        let post_bytes = post.to_bytes().unwrap();
+
+        // Test vector binary.
+        let expected_bytes = <Vec<u8>>::from_hex(TOPIC_POST_HEX_BINARY).unwrap();
 
         // Ensure the number of generated post bytes matches the number of
         // expected bytes.
