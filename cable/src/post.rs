@@ -135,15 +135,11 @@ pub enum PostBody {
     },
     /// Publicly announce membership in a channel.
     Join {
-        /// Length of the channel's name in bytes.
-        channel_len: ChannelLen,
         /// Channel name (UTF-8).
         channel: Channel,
     },
     /// Publicly announce termination of membership in a channel.
     Leave {
-        /// Length of the channel's name in bytes.
-        channel_len: ChannelLen,
         /// Channel name (UTF-8).
         channel: Channel,
     },
@@ -289,19 +285,13 @@ impl ToBytes for Post {
                 buf[offset..offset + topic.len()].copy_from_slice(topic);
                 offset += topic.len();
             }
-            PostBody::Join {
-                channel_len,
-                channel,
-            } => {
-                offset += varint::encode(*channel_len, &mut buf[offset..])?;
+            PostBody::Join { channel } => {
+                offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
                 buf[offset..offset + channel.len()].copy_from_slice(channel);
                 offset += channel.len();
             }
-            PostBody::Leave {
-                channel_len,
-                channel,
-            } => {
-                offset += varint::encode(*channel_len, &mut buf[offset..])?;
+            PostBody::Leave { channel } => {
+                offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
                 buf[offset..offset + channel.len()].copy_from_slice(channel);
                 offset += channel.len();
             }
@@ -358,14 +348,8 @@ impl CountBytes for Post {
                     + varint::length(topic.len() as u64)
                     + topic.len()
             }
-            PostBody::Join {
-                channel_len,
-                channel,
-            } => varint::length(*channel_len) + channel.len(),
-            PostBody::Leave {
-                channel_len,
-                channel,
-            } => varint::length(*channel_len) + channel.len(),
+            PostBody::Join { channel } => varint::length(channel.len() as u64) + channel.len(),
+            PostBody::Leave { channel } => varint::length(channel.len() as u64) + channel.len(),
             PostBody::Unrecognized { .. } => 0,
         };
 
