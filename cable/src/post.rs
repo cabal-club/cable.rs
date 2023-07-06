@@ -112,9 +112,6 @@ pub enum PostBody {
     /// Request that peers encountering this post delete the referenced posts
     /// from their local storage, and not store the referenced posts in the future.
     Delete {
-        // TODO: Remove this field. Can be calculated from the length of `hashes`.
-        /// Number of posts to be deleted (specified by number of hashes).
-        num_deletions: u64,
         /// Concatenated hashes of posts to be deleted.
         // NOTE: I would prefer to represent this field as `Vec<Hash>`.
         // That results in a `Vec<[u8; 32]>`, which needs to be flattened when
@@ -273,12 +270,8 @@ impl ToBytes for Post {
                 buf[offset..offset + text.len()].copy_from_slice(text);
                 offset += text.len();
             }
-            PostBody::Delete {
-                num_deletions,
-                hashes,
-            } => {
-                println!("{:?}", hashes);
-                offset += varint::encode(*num_deletions, &mut buf[offset..])?;
+            PostBody::Delete { hashes } => {
+                offset += varint::encode((hashes.len() / 32) as u64, &mut buf[offset..])?;
                 buf[offset..offset + hashes.len()].copy_from_slice(hashes);
                 offset += hashes.len();
             }
@@ -356,10 +349,9 @@ impl CountBytes for Post {
                     + varint::length(text.len() as u64)
                     + text.len()
             }
-            PostBody::Delete {
-                num_deletions,
-                hashes,
-            } => varint::length(*num_deletions) + hashes.len(),
+            PostBody::Delete { hashes } => {
+                varint::length((hashes.len() / 32) as u64) + hashes.len()
+            }
             PostBody::Info { info } => {
                 let mut info_len = 0;
 
@@ -493,18 +485,11 @@ mod test {
             .unwrap(),
         );
 
-        // Define number of hashes.
-        // TODO: Calculate this according to the length of `hashes`.
-        let num_deletions = 3;
-
         // Construct a new post header.
         let header = PostHeader::new(public_key, signature, links, post_type, timestamp);
 
         // Construct a new post body.
-        let body = PostBody::Delete {
-            num_deletions,
-            hashes,
-        };
+        let body = PostBody::Delete { hashes };
 
         // Construct a new post.
         let post = Post::new(header, body);
