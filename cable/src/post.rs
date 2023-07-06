@@ -964,4 +964,51 @@ mod test {
             panic!("Incorrect post type: expected info");
         }
     }
+
+    #[test]
+    fn bytes_to_topic_post() {
+        // Test vector binary.
+        let post_bytes = <Vec<u8>>::from_hex(TOPIC_POST_HEX_BINARY).unwrap();
+
+        // Decode the byte slice to a `Post`.
+        let (_, post) = Post::from_bytes(&post_bytes).unwrap();
+
+        /* HEADER FIELD VALUES */
+
+        let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
+        let expected_signature = <[u8; 64]>::from_hex("bf7578e781caee4ca708281645b291a2100c4f2138f0e0ac98bc2b4a414b4ba8dca08285751114b05f131421a1745b648c43b17b05392593237dfacc8dff5208").unwrap();
+        let expected_links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
+        let expected_post_type = 3;
+        let expected_timestamp = 80;
+
+        let PostHeader {
+            public_key,
+            signature,
+            links,
+            post_type,
+            timestamp,
+        } = post.header;
+
+        // Ensure the post header fields are correct.
+        assert_eq!(public_key, expected_public_key);
+        assert_eq!(signature, expected_signature);
+        assert_eq!(links, expected_links);
+        assert_eq!(post_type, expected_post_type);
+        assert_eq!(timestamp, expected_timestamp);
+
+        /* BODY FIELD VALUES */
+
+        let expected_channel = "default".to_string().into_bytes();
+        let expected_topic = "introduce yourself to the friendly crowd of likeminded folx"
+            .to_string()
+            .into_bytes();
+
+        // Ensure the post body fields are correct.
+        if let PostBody::Topic { channel, topic } = post.body {
+            assert_eq!(channel, expected_channel);
+            assert_eq!(topic, expected_topic);
+        } else {
+            panic!("Incorrect post type: expected topic");
+        }
+    }
 }
