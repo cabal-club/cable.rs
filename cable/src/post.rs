@@ -861,4 +861,62 @@ mod test {
             panic!("Incorrect post type: expected text");
         }
     }
+
+    #[test]
+    fn bytes_to_delete_post() {
+        // Test vector binary.
+        let post_bytes = <Vec<u8>>::from_hex(DELETE_POST_HEX_BINARY).unwrap();
+
+        // Decode the byte slice to a `Post`.
+        let (_, post) = Post::from_bytes(&post_bytes).unwrap();
+
+        /* HEADER FIELD VALUES */
+
+        let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
+        let expected_signature = <[u8; 64]>::from_hex("affe77e3b3156cda7feea042269bb7e93f5031662c70610d37baa69132b4150c18d67cb2ac24fb0f9be0a6516e53ba2f3bbc5bd8e7a1bff64d9c78ce0c2e4205").unwrap();
+        let expected_links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
+        let expected_post_type = 1;
+        let expected_timestamp = 80;
+
+        let PostHeader {
+            public_key,
+            signature,
+            links,
+            post_type,
+            timestamp,
+        } = post.header;
+
+        // Ensure the post header fields are correct.
+        assert_eq!(public_key, expected_public_key);
+        assert_eq!(signature, expected_signature);
+        assert_eq!(links, expected_links);
+        assert_eq!(post_type, expected_post_type);
+        assert_eq!(timestamp, expected_timestamp);
+
+        /* BODY FIELD VALUES */
+
+        // Concatenate the hashes into a single `Vec<u8>`.
+        let mut expected_hashes =
+            <Vec<u8>>::from_hex("15ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e5")
+                .unwrap();
+        expected_hashes.append(
+            &mut <Vec<u8>>::from_hex(
+                "97fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db68",
+            )
+            .unwrap(),
+        );
+        expected_hashes.append(
+            &mut <Vec<u8>>::from_hex(
+                "9c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa",
+            )
+            .unwrap(),
+        );
+
+        // Ensure the post body fields are correct.
+        if let PostBody::Delete { hashes } = post.body {
+            assert_eq!(hashes, expected_hashes);
+        } else {
+            panic!("Incorrect post type: expected delete");
+        }
+    }
 }
