@@ -128,12 +128,8 @@ pub enum PostBody {
     },
     /// Set a topic for a channel.
     Topic {
-        /// Length of the channel's name in bytes.
-        channel_len: ChannelLen,
         /// Channel name (UTF-8).
         channel: Channel,
-        /// Length of the topic field in bytes.
-        topic_len: u64,
         /// Topic content (UTF-8).
         topic: Topic,
     },
@@ -285,18 +281,10 @@ impl ToBytes for Post {
                     offset += val.len();
                 }
             }
-            PostBody::Topic {
-                channel_len,
-                channel,
-                topic_len,
-                topic,
-            } => {
-                offset += varint::encode(*channel_len, &mut buf[offset..])?;
+            PostBody::Topic { channel, topic } => {
+                offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
                 buf[offset..offset + channel.len()].copy_from_slice(channel);
                 offset += channel.len();
-                offset += varint::encode(*topic_len, &mut buf[offset..])?;
-                // TODO: Check that this line is necessary; may be made
-                // redundant by previous LOC.
                 offset += varint::encode(topic.len() as u64, &mut buf[offset..])?;
                 buf[offset..offset + topic.len()].copy_from_slice(topic);
                 offset += topic.len();
@@ -364,15 +352,10 @@ impl CountBytes for Post {
 
                 info_len
             }
-            PostBody::Topic {
-                channel_len,
-                channel,
-                topic_len,
-                topic,
-            } => {
-                varint::length(*channel_len)
+            PostBody::Topic { channel, topic } => {
+                varint::length(channel.len() as u64)
                     + channel.len()
-                    + varint::length(*topic_len)
+                    + varint::length(topic.len() as u64)
                     + topic.len()
             }
             PostBody::Join {
