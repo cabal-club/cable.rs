@@ -104,14 +104,8 @@ impl PostHeader {
 pub enum PostBody {
     /// Post a chat message to a channel.
     Text {
-        // TODO: Remove this field. Can be calculated from the length of `channel`.
-        /// Length of the channel's name in bytes.
-        channel_len: ChannelLen,
         /// Channel name (UTF-8).
         channel: Channel,
-        // TODO: Remove this field. Can be calculated from the length of `text`.
-        /// Length of the text field in bytes.
-        text_len: u64,
         /// Chat message text (UTF-8).
         text: Text,
     },
@@ -270,17 +264,12 @@ impl ToBytes for Post {
         /* POST BODY BYTES */
 
         match &self.body {
-            PostBody::Text {
-                channel_len,
-                channel,
-                text_len,
-                text,
-            } => {
-                offset += varint::encode(*channel_len, &mut buf[offset..])?;
+            PostBody::Text { channel, text } => {
+                offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
                 buf[offset..offset + channel.len()].copy_from_slice(channel);
                 offset += channel.len();
 
-                offset += varint::encode(*text_len, &mut buf[offset..])?;
+                offset += varint::encode(text.len() as u64, &mut buf[offset..])?;
                 buf[offset..offset + text.len()].copy_from_slice(text);
                 offset += text.len();
             }
@@ -361,15 +350,10 @@ impl CountBytes for Post {
 
         // Count the post body bytes.
         let body_size = match &self.body {
-            PostBody::Text {
-                channel_len,
-                channel,
-                text_len,
-                text,
-            } => {
-                varint::length(*channel_len)
+            PostBody::Text { channel, text } => {
+                varint::length(channel.len() as u64)
                     + channel.len()
-                    + varint::length(*text_len)
+                    + varint::length(text.len() as u64)
                     + text.len()
             }
             PostBody::Delete {
@@ -456,20 +440,13 @@ mod test {
         /* BODY FIELD VALUES */
 
         let channel: Vec<u8> = "default".to_string().into();
-        let channel_len = channel.len() as u64;
         let text: Vec<u8> = "h€llo world".to_string().into();
-        let text_len = text.len() as u64;
 
         // Construct a new post header.
         let header = PostHeader::new(public_key, signature, links, post_type, timestamp);
 
         // Construct a new post body.
-        let body = PostBody::Text {
-            channel_len,
-            channel,
-            text_len,
-            text,
-        };
+        let body = PostBody::Text { channel, text };
 
         // Construct a new post.
         let post = Post::new(header, body);
