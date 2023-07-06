@@ -1011,4 +1011,90 @@ mod test {
             panic!("Incorrect post type: expected topic");
         }
     }
+
+    #[test]
+    fn bytes_to_join_post() {
+        // Test vector binary.
+        let post_bytes = <Vec<u8>>::from_hex(JOIN_POST_HEX_BINARY).unwrap();
+
+        // Decode the byte slice to a `Post`.
+        let (_, post) = Post::from_bytes(&post_bytes).unwrap();
+
+        /* HEADER FIELD VALUES */
+
+        let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
+        let expected_signature = <[u8; 64]>::from_hex("64425f10fa34c1e14b6101491772d3c5f15f720a952dd56c27d5ad52f61f695130ce286de73e332612b36242339b61c9e12397f5dcc94c79055c7e1cb1dbfb08").unwrap();
+        let expected_links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
+        let expected_post_type = 4;
+        let expected_timestamp = 80;
+
+        let PostHeader {
+            public_key,
+            signature,
+            links,
+            post_type,
+            timestamp,
+        } = post.header;
+
+        // Ensure the post header fields are correct.
+        assert_eq!(public_key, expected_public_key);
+        assert_eq!(signature, expected_signature);
+        assert_eq!(links, expected_links);
+        assert_eq!(post_type, expected_post_type);
+        assert_eq!(timestamp, expected_timestamp);
+
+        /* BODY FIELD VALUES */
+
+        let expected_channel = "default".to_string().into_bytes();
+
+        // Ensure the post body fields are correct.
+        if let PostBody::Join { channel } = post.body {
+            assert_eq!(channel, expected_channel);
+        } else {
+            panic!("Incorrect post type: expected join");
+        }
+    }
+
+    #[test]
+    fn bytes_to_leave_post() {
+        // Test vector binary.
+        let post_bytes = <Vec<u8>>::from_hex(LEAVE_POST_HEX_BINARY).unwrap();
+
+        // Decode the byte slice to a `Post`.
+        let (_, post) = Post::from_bytes(&post_bytes).unwrap();
+
+        /* HEADER FIELD VALUES */
+
+        let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
+        let expected_signature = <[u8; 64]>::from_hex("abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805").unwrap();
+        let expected_links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
+        let expected_post_type = 5;
+        let expected_timestamp = 80;
+
+        let PostHeader {
+            public_key,
+            signature,
+            links,
+            post_type,
+            timestamp,
+        } = post.header;
+
+        // Ensure the post header fields are correct.
+        assert_eq!(public_key, expected_public_key);
+        assert_eq!(signature, expected_signature);
+        assert_eq!(links, expected_links);
+        assert_eq!(post_type, expected_post_type);
+        assert_eq!(timestamp, expected_timestamp);
+
+        /* BODY FIELD VALUES */
+
+        let expected_channel = "default".to_string().into_bytes();
+
+        // Ensure the post body fields are correct.
+        if let PostBody::Leave { channel } = post.body {
+            assert_eq!(channel, expected_channel);
+        } else {
+            panic!("Incorrect post type: expected leave");
+        }
+    }
 }
