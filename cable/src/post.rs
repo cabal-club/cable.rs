@@ -63,9 +63,6 @@ pub struct PostHeader {
     pub public_key: [u8; 32],
     /// Signature of the fields that follow.
     pub signature: [u8; 64],
-    // TODO: Remove this field. Can be calculated from the length of `links`.
-    /// Number of hashes this post links back to (0+).
-    pub num_links: u64,
     /// Hashes of the latest posts in this channel/context.
     // NOTE: I would prefer to represent this field as `Vec<Hash>`.
     // That results in a `Vec<[u8; 32]>`, which needs to be flattened when
@@ -85,7 +82,6 @@ impl PostHeader {
     pub fn new(
         public_key: [u8; 32],
         signature: [u8; 64],
-        num_links: u64,
         links: Vec<u8>,
         post_type: u64,
         timestamp: u64,
@@ -93,7 +89,6 @@ impl PostHeader {
         PostHeader {
             public_key,
             signature,
-            num_links,
             links,
             post_type,
             timestamp,
@@ -258,7 +253,7 @@ impl ToBytes for Post {
 
         // Encode num_links as a varint, write the resulting bytes to the
         // buffer and increment the offset.
-        offset += varint::encode(self.header.num_links, &mut buf[offset..])?;
+        offset += varint::encode((self.header.links.len() / 32) as u64, &mut buf[offset..])?;
 
         // Write the links bytes to the buffer and increment the offset.
         buf[offset..offset + self.header.links.len()].copy_from_slice(&self.header.links);
@@ -359,7 +354,7 @@ impl CountBytes for Post {
         // Count the post header bytes.
         let header_size = 32 // Public key.
             + 64 // Signature.
-            + varint::length(self.header.num_links) // Number of links.
+            + varint::length((self.header.links.len() / 32) as u64) // Number of links.
             + self.header.links.len() // Links.
             + varint::length(post_type) // Post type.
             + varint::length(self.header.timestamp); // Timestamp.
@@ -454,7 +449,6 @@ mod test {
 
         let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
         let signature = <[u8; 64]>::from_hex("6725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05").unwrap();
-        let num_links = 1;
         let links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
         let post_type = 0;
         let timestamp = 80;
@@ -467,9 +461,7 @@ mod test {
         let text_len = text.len() as u64;
 
         // Construct a new post header.
-        let header = PostHeader::new(
-            public_key, signature, num_links, links, post_type, timestamp,
-        );
+        let header = PostHeader::new(public_key, signature, links, post_type, timestamp);
 
         // Construct a new post body.
         let body = PostBody::Text {
@@ -501,7 +493,6 @@ mod test {
 
         let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
         let signature = <[u8; 64]>::from_hex("affe77e3b3156cda7feea042269bb7e93f5031662c70610d37baa69132b4150c18d67cb2ac24fb0f9be0a6516e53ba2f3bbc5bd8e7a1bff64d9c78ce0c2e4205").unwrap();
-        let num_links = 1;
         let links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
         let post_type = 1;
         let timestamp = 80;
@@ -530,9 +521,7 @@ mod test {
         let num_deletions = 3;
 
         // Construct a new post header.
-        let header = PostHeader::new(
-            public_key, signature, num_links, links, post_type, timestamp,
-        );
+        let header = PostHeader::new(public_key, signature, links, post_type, timestamp);
 
         // Construct a new post body.
         let body = PostBody::Delete {
@@ -581,7 +570,6 @@ mod test {
 
         let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
         let signature = <[u8; 64]>::from_hex("f70273779147a3b756407d5660ed2e8e2975abc5ab224fb152aa2bfb3dd331740a66e0718cd580bc94978c1c3cd4524ad8cb2f4cca80df481010c3ef834ac700").unwrap();
-        let num_links = 1;
         let links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
         let post_type = 2;
         let timestamp = 80;
@@ -592,9 +580,7 @@ mod test {
         let user_info = UserInfo::new(key, val);
 
         // Construct a new post header.
-        let header = PostHeader::new(
-            public_key, signature, num_links, links, post_type, timestamp,
-        );
+        let header = PostHeader::new(public_key, signature, links, post_type, timestamp);
 
         // Construct a new post body.
         let body = PostBody::Info {
