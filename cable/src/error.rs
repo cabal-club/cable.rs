@@ -1,9 +1,12 @@
-use crate::Error;
+#[cfg(feature = "nightly-features")]
 use std::backtrace::Backtrace;
+
+pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
 #[derive(Debug)]
 pub struct CableError {
     kind: CableErrorKind,
+    #[cfg(feature = "nightly-features")]
     backtrace: Backtrace,
 }
 
@@ -26,12 +29,14 @@ impl CableErrorKind {
     pub fn raise<T>(self) -> Result<T, Error> {
         Err(Box::new(CableError {
             kind: self,
+            #[cfg(feature = "nightly-features")]
             backtrace: Backtrace::capture(),
         }))
     }
 }
 
 impl std::error::Error for CableError {
+    #[cfg(feature = "nightly-features")]
     fn backtrace<'a>(&'a self) -> Option<&'a Backtrace> {
         Some(&self.backtrace)
     }
