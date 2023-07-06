@@ -602,11 +602,10 @@ mod test {
 
         // Ensure the number of generated post bytes matches the number of
         // expected bytes.
-        // TODO: Flip the order of expected and result (result should come first).
-        assert_eq!(expected_bytes.len(), post_bytes.len());
+        assert_eq!(post_bytes.len(), expected_bytes.len());
 
         // Ensure the generated post bytes match the expected bytes.
-        assert_eq!(expected_bytes, post_bytes);
+        assert_eq!(post_bytes, expected_bytes);
     }
 
     #[test]
@@ -654,10 +653,10 @@ mod test {
 
         // Ensure the number of generated post bytes matches the number of
         // expected bytes.
-        assert_eq!(expected_bytes.len(), post_bytes.len());
+        assert_eq!(post_bytes.len(), expected_bytes.len());
 
         // Ensure the generated post bytes match the expected bytes.
-        assert_eq!(expected_bytes, post_bytes);
+        assert_eq!(post_bytes, expected_bytes);
     }
 
     #[test]
@@ -694,10 +693,10 @@ mod test {
 
         // Ensure the number of generated post bytes matches the number of
         // expected bytes.
-        assert_eq!(expected_bytes.len(), post_bytes.len());
+        assert_eq!(post_bytes.len(), expected_bytes.len());
 
         // Ensure the generated post bytes match the expected bytes.
-        assert_eq!(expected_bytes, post_bytes);
+        assert_eq!(post_bytes, expected_bytes);
     }
 
     #[test]
@@ -734,10 +733,10 @@ mod test {
 
         // Ensure the number of generated post bytes matches the number of
         // expected bytes.
-        assert_eq!(expected_bytes.len(), post_bytes.len());
+        assert_eq!(post_bytes.len(), expected_bytes.len());
 
         // Ensure the generated post bytes match the expected bytes.
-        assert_eq!(expected_bytes, post_bytes);
+        assert_eq!(post_bytes, expected_bytes);
     }
 
     #[test]
@@ -772,10 +771,10 @@ mod test {
 
         // Ensure the number of generated post bytes matches the number of
         // expected bytes.
-        assert_eq!(expected_bytes.len(), post_bytes.len());
+        assert_eq!(post_bytes.len(), expected_bytes.len());
 
         // Ensure the generated post bytes match the expected bytes.
-        assert_eq!(expected_bytes, post_bytes);
+        assert_eq!(post_bytes, expected_bytes);
     }
 
     #[test]
@@ -810,10 +809,10 @@ mod test {
 
         // Ensure the number of generated post bytes matches the number of
         // expected bytes.
-        assert_eq!(expected_bytes.len(), post_bytes.len());
+        assert_eq!(post_bytes.len(), expected_bytes.len());
 
         // Ensure the generated post bytes match the expected bytes.
-        assert_eq!(expected_bytes, post_bytes);
+        assert_eq!(post_bytes, expected_bytes);
     }
 
     /* BYTES TO POST TESTS */
