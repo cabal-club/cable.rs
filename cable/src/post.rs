@@ -334,9 +334,12 @@ impl FromBytes for Post {
         let (s, num_links) = varint::decode(&buf[offset..])?;
         offset += s;
 
+        // Calculate the number of links bytes.
+        let links_len = (num_links * 32) as usize;
+
         // Read the links bytes from the buffer and increment the offset.
-        let links = buf[offset..offset + num_links as usize].to_vec();
-        offset += num_links as usize;
+        let links = buf[offset..offset + links_len].to_vec();
+        offset += links_len as usize;
 
         // Read the post-type byte from the buffer and increment the offset.
         let (s, post_type) = varint::decode(&buf[offset..])?;
@@ -540,7 +543,7 @@ impl CountBytes for Post {
 
 #[cfg(test)]
 mod test {
-    use super::{Post, PostBody, PostHeader, ToBytes, UserInfo};
+    use super::{FromBytes, Post, PostBody, PostHeader, ToBytes, UserInfo};
 
     use hex::FromHex;
 
@@ -563,6 +566,8 @@ mod test {
         let result = Post::verify(&buffer);
         assert_eq!(result, true);
     }
+
+    /* POST TO BYTES TESTS */
 
     #[test]
     fn text_post_to_bytes() {
@@ -597,6 +602,7 @@ mod test {
 
         // Ensure the number of generated post bytes matches the number of
         // expected bytes.
+        // TODO: Flip the order of expected and result (result should come first).
         assert_eq!(expected_bytes.len(), post_bytes.len());
 
         // Ensure the generated post bytes match the expected bytes.
@@ -808,5 +814,52 @@ mod test {
 
         // Ensure the generated post bytes match the expected bytes.
         assert_eq!(expected_bytes, post_bytes);
+    }
+
+    /* BYTES TO POST TESTS */
+
+    #[test]
+    fn bytes_to_text_post() {
+        // Test vector binary.
+        let post_bytes = <Vec<u8>>::from_hex(TEXT_POST_HEX_BINARY).unwrap();
+
+        // Decode the byte slice to a `Post`.
+        let (_, post) = Post::from_bytes(&post_bytes).unwrap();
+
+        /* HEADER FIELD VALUES */
+
+        let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
+        let expected_signature = <[u8; 64]>::from_hex("6725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05").unwrap();
+        let expected_links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
+        let expected_post_type = 0;
+        let expected_timestamp = 80;
+
+        let PostHeader {
+            public_key,
+            signature,
+            links,
+            post_type,
+            timestamp,
+        } = post.header;
+
+        // Ensure the post header fields are correct.
+        assert_eq!(public_key, expected_public_key);
+        assert_eq!(signature, expected_signature);
+        assert_eq!(links, expected_links);
+        assert_eq!(post_type, expected_post_type);
+        assert_eq!(timestamp, expected_timestamp);
+
+        /* BODY FIELD VALUES */
+
+        let expected_channel: Vec<u8> = "default".to_string().into();
+        let expected_text: Vec<u8> = "h€llo world".to_string().into();
+
+        // Ensure the post body fields are correct.
+        if let PostBody::Text { channel, text } = post.body {
+            assert_eq!(channel, expected_channel);
+            assert_eq!(text, expected_text);
+        } else {
+            panic!("Incorrect post type: expected text");
+        }
     }
 }
