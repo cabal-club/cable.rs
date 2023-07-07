@@ -2,16 +2,13 @@ mod error;
 mod message;
 mod post;
 
-// TODO: Consider changing this to `String`.
-// Then use `.into_bytes()` where required.
 pub type Channel = String;
 pub type CircuitId = [u8; 4];
 pub type Hash = [u8; 32];
 pub type ReqId = [u8; 4];
 // TODO: Consider changing this to `String`.
 pub type Text = Vec<u8>;
-// TODO: Consider changing this to `String`.
-pub type Topic = Vec<u8>;
+pub type Topic = String;
 
 #[derive(Clone, Debug)]
 /// The length and data of an encoded channel name.

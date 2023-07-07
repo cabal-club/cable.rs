@@ -324,7 +324,7 @@ impl ToBytes for Post {
                 buf[offset..offset + channel.len()].copy_from_slice(channel.as_bytes());
                 offset += channel.len();
                 offset += varint::encode(topic.len() as u64, &mut buf[offset..])?;
-                buf[offset..offset + topic.len()].copy_from_slice(topic);
+                buf[offset..offset + topic.len()].copy_from_slice(topic.as_bytes());
                 offset += topic.len();
             }
             PostBody::Join { channel } => {
@@ -490,7 +490,7 @@ impl FromBytes for Post {
                 offset += s;
 
                 // Read the topic bytes and increment the offset.
-                let topic = buf[offset..offset + topic_len as usize].to_vec();
+                let topic = String::from_utf8(buf[offset..offset + topic_len as usize].to_vec())?;
                 offset += topic_len as usize;
 
                 PostBody::Topic { channel, topic }
@@ -1143,9 +1143,8 @@ mod test {
         /* BODY FIELD VALUES */
 
         let expected_channel = "default".to_string();
-        let expected_topic = "introduce yourself to the friendly crowd of likeminded folx"
-            .to_string()
-            .into_bytes();
+        let expected_topic =
+            "introduce yourself to the friendly crowd of likeminded folx".to_string();
 
         // Ensure the post body fields are correct.
         if let PostBody::Topic { channel, topic } = post.body {
