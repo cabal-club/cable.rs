@@ -12,7 +12,7 @@ use std::convert::TryInto;
 
 use desert::{varint, CountBytes, FromBytes, ToBytes};
 use sodiumoxide::crypto::{
-    sign,
+    generichash, sign,
     sign::{PublicKey, SecretKey, Signature},
 };
 
@@ -171,6 +171,14 @@ impl Post {
         match &self.header {
             PostHeader { timestamp, .. } => Some(*timestamp),
         }
+    }
+
+    /// Return the hash of the post.
+    pub fn hash(&self) -> Result<Hash, Error> {
+        let buf = self.to_bytes()?;
+        let digest = generichash::hash(&buf, Some(32), None).unwrap();
+
+        Ok(digest.as_ref().try_into()?)
     }
 
     /// Check if the post has a signature.
