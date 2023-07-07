@@ -15,17 +15,16 @@ use crate::{
     Channel, Hash, Text, Topic,
 };
 
-// TODO: Consider changing `key` and `val` to `String`.
 #[derive(Clone, Debug, PartialEq)]
 /// Information self-published by a user.
 pub struct UserInfo {
-    pub key: Vec<u8>,
-    pub val: Vec<u8>,
+    pub key: String,
+    pub val: String,
 }
 
 impl UserInfo {
     /// Convenience method to construct `UserInfo`.
-    pub fn new<T: Into<Vec<u8>>, U: Into<Vec<u8>>>(key: T, val: U) -> Self {
+    pub fn new<T: Into<String>, U: Into<String>>(key: T, val: U) -> Self {
         UserInfo {
             key: key.into(),
             val: val.into(),
@@ -292,11 +291,12 @@ impl ToBytes for Post {
         match &self.body {
             PostBody::Text { channel, text } => {
                 offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
-                buf[offset..offset + channel.len()].copy_from_slice(channel);
+                //buf[offset..offset + channel.len()].copy_from_slice(&channel.into_bytes());
+                buf[offset..offset + channel.len()].copy_from_slice(channel.as_bytes());
                 offset += channel.len();
 
                 offset += varint::encode(text.len() as u64, &mut buf[offset..])?;
-                buf[offset..offset + text.len()].copy_from_slice(text);
+                buf[offset..offset + text.len()].copy_from_slice(text.as_bytes());
                 offset += text.len();
             }
             PostBody::Delete { hashes } => {
@@ -307,10 +307,10 @@ impl ToBytes for Post {
             PostBody::Info { info } => {
                 for UserInfo { key, val } in info {
                     offset += varint::encode(key.len() as u64, &mut buf[offset..])?;
-                    buf[offset..offset + key.len()].copy_from_slice(key);
+                    buf[offset..offset + key.len()].copy_from_slice(key.as_bytes());
                     offset += key.len();
                     offset += varint::encode(val.len() as u64, &mut buf[offset..])?;
-                    buf[offset..offset + val.len()].copy_from_slice(val);
+                    buf[offset..offset + val.len()].copy_from_slice(val.as_bytes());
                     offset += val.len();
                 }
 
@@ -320,20 +320,20 @@ impl ToBytes for Post {
             }
             PostBody::Topic { channel, topic } => {
                 offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
-                buf[offset..offset + channel.len()].copy_from_slice(channel);
+                buf[offset..offset + channel.len()].copy_from_slice(channel.as_bytes());
                 offset += channel.len();
                 offset += varint::encode(topic.len() as u64, &mut buf[offset..])?;
-                buf[offset..offset + topic.len()].copy_from_slice(topic);
+                buf[offset..offset + topic.len()].copy_from_slice(topic.as_bytes());
                 offset += topic.len();
             }
             PostBody::Join { channel } => {
                 offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
-                buf[offset..offset + channel.len()].copy_from_slice(channel);
+                buf[offset..offset + channel.len()].copy_from_slice(channel.as_bytes());
                 offset += channel.len();
             }
             PostBody::Leave { channel } => {
                 offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
-                buf[offset..offset + channel.len()].copy_from_slice(channel);
+                buf[offset..offset + channel.len()].copy_from_slice(channel.as_bytes());
                 offset += channel.len();
             }
             PostBody::Unrecognized { post_type } => {
@@ -406,7 +406,8 @@ impl FromBytes for Post {
                 offset += s;
 
                 // Read the channel bytes and increment the offset.
-                let channel = buf[offset..offset + channel_len as usize].to_vec();
+                let channel =
+                    String::from_utf8(buf[offset..offset + channel_len as usize].to_vec())?;
                 offset += channel_len as usize;
 
                 // Read the text length byte and increment the offset.
@@ -414,7 +415,7 @@ impl FromBytes for Post {
                 offset += s;
 
                 // Read the text bytes and increment the offset.
-                let text = buf[offset..offset + text_len as usize].to_vec();
+                let text = String::from_utf8(buf[offset..offset + text_len as usize].to_vec())?;
                 offset += text_len as usize;
 
                 PostBody::Text { channel, text }
@@ -454,7 +455,7 @@ impl FromBytes for Post {
                     }
 
                     // Read the key bytes and increment the offset.
-                    let key = buf[offset..offset + key_len as usize].to_vec();
+                    let key = String::from_utf8(buf[offset..offset + key_len as usize].to_vec())?;
                     offset += key_len as usize;
 
                     // Read the val length byte and increment the offset.
@@ -462,7 +463,7 @@ impl FromBytes for Post {
                     offset += s;
 
                     // Read the val bytes and increment the offset.
-                    let val = buf[offset..offset + val_len as usize].to_vec();
+                    let val = String::from_utf8(buf[offset..offset + val_len as usize].to_vec())?;
                     offset += val_len as usize;
 
                     let key_val = UserInfo::new(key, val);
@@ -479,7 +480,8 @@ impl FromBytes for Post {
                 offset += s;
 
                 // Read the channel bytes and increment the offset.
-                let channel = buf[offset..offset + channel_len as usize].to_vec();
+                let channel =
+                    String::from_utf8(buf[offset..offset + channel_len as usize].to_vec())?;
                 offset += channel_len as usize;
 
                 // Read the topic length byte and increment the offset.
@@ -487,7 +489,7 @@ impl FromBytes for Post {
                 offset += s;
 
                 // Read the topic bytes and increment the offset.
-                let topic = buf[offset..offset + topic_len as usize].to_vec();
+                let topic = String::from_utf8(buf[offset..offset + topic_len as usize].to_vec())?;
                 offset += topic_len as usize;
 
                 PostBody::Topic { channel, topic }
@@ -499,7 +501,8 @@ impl FromBytes for Post {
                 offset += s;
 
                 // Read the channel bytes and increment the offset.
-                let channel = buf[offset..offset + channel_len as usize].to_vec();
+                let channel =
+                    String::from_utf8(buf[offset..offset + channel_len as usize].to_vec())?;
                 offset += s;
 
                 PostBody::Join { channel }
@@ -511,7 +514,8 @@ impl FromBytes for Post {
                 offset += s;
 
                 // Read the channel bytes and increment the offset.
-                let channel = buf[offset..offset + channel_len as usize].to_vec();
+                let channel =
+                    String::from_utf8(buf[offset..offset + channel_len as usize].to_vec())?;
                 offset += s;
 
                 PostBody::Leave { channel }
@@ -621,7 +625,7 @@ mod test {
 
         /* BODY FIELD VALUES */
 
-        let channel = "default".to_string().into_bytes();
+        let channel = "default".to_string();
 
         // Construct a new post body.
         let body = PostBody::Join {
@@ -658,7 +662,7 @@ mod test {
         /* BODY FIELD VALUES */
 
         let body = PostBody::Leave {
-            channel: "default".to_string().into_bytes(),
+            channel: "default".to_string(),
         };
 
         let post = Post { header, body };
@@ -687,8 +691,8 @@ mod test {
 
         /* BODY FIELD VALUES */
 
-        let channel: Vec<u8> = "default".to_string().into();
-        let text: Vec<u8> = "h€llo world".to_string().into();
+        let channel = "default".to_string();
+        let text = "h€llo world".to_string();
 
         // Construct a new post body.
         let body = PostBody::Text { channel, text };
@@ -719,8 +723,8 @@ mod test {
 
         /* BODY FIELD VALUES */
 
-        let channel: Vec<u8> = "default".to_string().into();
-        let text: Vec<u8> = "h€llo world".to_string().into();
+        let channel = "default".to_string();
+        let text = "h€llo world".to_string();
 
         // Construct a new post body.
         let body = PostBody::Text { channel, text };
@@ -805,8 +809,8 @@ mod test {
 
         /* BODY FIELD VALUES */
 
-        let key = "name".to_string();
-        let val = "cabler".to_string();
+        let key = "name";
+        let val = "cabler";
         let user_info = UserInfo::new(key, val);
 
         // Construct a new post body.
@@ -989,8 +993,8 @@ mod test {
 
         /* BODY FIELD VALUES */
 
-        let expected_channel: Vec<u8> = "default".to_string().into();
-        let expected_text: Vec<u8> = "h€llo world".to_string().into();
+        let expected_channel = "default".to_string();
+        let expected_text = "h€llo world".to_string();
 
         // Ensure the post body fields are correct.
         if let PostBody::Text { channel, text } = post.body {
@@ -1090,8 +1094,8 @@ mod test {
 
         /* BODY FIELD VALUES */
 
-        let key = "name".to_string();
-        let val = "cabler".to_string();
+        let key = "name";
+        let val = "cabler";
         let expected_info = vec![UserInfo::new(key, val)];
 
         // Ensure the post body fields are correct.
@@ -1137,10 +1141,9 @@ mod test {
 
         /* BODY FIELD VALUES */
 
-        let expected_channel = "default".to_string().into_bytes();
-        let expected_topic = "introduce yourself to the friendly crowd of likeminded folx"
-            .to_string()
-            .into_bytes();
+        let expected_channel = "default".to_string();
+        let expected_topic =
+            "introduce yourself to the friendly crowd of likeminded folx".to_string();
 
         // Ensure the post body fields are correct.
         if let PostBody::Topic { channel, topic } = post.body {
@@ -1186,7 +1189,7 @@ mod test {
 
         /* BODY FIELD VALUES */
 
-        let expected_channel = "default".to_string().into_bytes();
+        let expected_channel = "default".to_string();
 
         // Ensure the post body fields are correct.
         if let PostBody::Join { channel } = post.body {
@@ -1231,7 +1234,7 @@ mod test {
 
         /* BODY FIELD VALUES */
 
-        let expected_channel = "default".to_string().into_bytes();
+        let expected_channel = "default".to_string();
 
         // Ensure the post body fields are correct.
         if let PostBody::Leave { channel } = post.body {

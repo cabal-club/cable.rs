@@ -2,16 +2,14 @@ mod error;
 mod message;
 mod post;
 
-// TODO: Consider changing this to `String`.
-// Then use `.into_bytes()` where required.
-pub type Channel = Vec<u8>;
+// TODO: Add a validation function to check length.
+pub type Channel = String;
 pub type CircuitId = [u8; 4];
 pub type Hash = [u8; 32];
 pub type ReqId = [u8; 4];
-// TODO: Consider changing this to `String`.
-pub type Text = Vec<u8>;
-// TODO: Consider changing this to `String`.
-pub type Topic = Vec<u8>;
+pub type Text = String;
+// TODO: Add a validation function to check length.
+pub type Topic = String;
 
 #[derive(Clone, Debug)]
 /// The length and data of an encoded channel name.
@@ -19,7 +17,7 @@ pub struct EncodedChannel {
     /// The length of the channel name in bytes.
     pub channel_len: Vec<u8>, // varint
     /// The channel name data.
-    pub channel: Channel,
+    pub channel: Vec<u8>,
 }
 
 /*
