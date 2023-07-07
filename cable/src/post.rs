@@ -15,6 +15,7 @@ use crate::{
     Channel, Hash, Text, Topic,
 };
 
+// TODO: Consider changing `key` and `val` to `String`.
 #[derive(Clone, Debug, PartialEq)]
 /// Information self-published by a user.
 pub struct UserInfo {
@@ -600,6 +601,40 @@ mod test {
 
         let result = Post::verify(&buffer);
         assert_eq!(result, true);
+
+        Ok(())
+    }
+
+    #[test]
+    fn get_channel_from_join_post() -> Result<(), Error> {
+        /* HEADER FIELD VALUES */
+
+        let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
+        let signature = <[u8; 64]>::from_hex("64425f10fa34c1e14b6101491772d3c5f15f720a952dd56c27d5ad52f61f695130ce286de73e332612b36242339b61c9e12397f5dcc94c79055c7e1cb1dbfb08")?;
+        let links = <Vec<u8>>::from_hex(POST_HASH)?;
+        let post_type = 4;
+        let timestamp = 80;
+
+        // Construct a new post header.
+        let header = PostHeader::new(public_key, signature, links, post_type, timestamp);
+
+        /* BODY FIELD VALUES */
+
+        let channel = "default".to_string().into_bytes();
+
+        // Construct a new post body.
+        let body = PostBody::Join {
+            channel: channel.clone(),
+        };
+
+        // Construct a new post.
+        let post = Post::new(header, body);
+
+        if let Some(retrieved_channel) = post.get_channel() {
+            assert_eq!(retrieved_channel, &channel)
+        } else {
+            panic!("Failed to retrieve channel from join post");
+        }
 
         Ok(())
     }
