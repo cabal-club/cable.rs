@@ -1,14 +1,8 @@
-/*
-use crate::{error::CableErrorKind as E, Channel, Error, Hash};
-use desert::{varint, CountBytes, FromBytes, ToBytes};
-use sodiumoxide::crypto;
-use std::convert::TryInto;
-*/
-
 //! Post formats for all post types supported by cable.
 //!
 //! Includes type definitions for all post types, as well as post header and
-//! body types. Helper methods are included.
+//! body types. Helper methods are included, some of which provide cryptographic
+//! functions such as post signing and hashing.
 
 use desert::{varint, CountBytes, FromBytes, ToBytes};
 use sodiumoxide::crypto::{
@@ -52,9 +46,6 @@ pub struct Post {
     pub header: PostHeader,
     pub body: PostBody,
 }
-
-// TODO: think about appropriate integer sizes.
-// E.g. Should `num_links` and `post_type` be `u64` or smaller?
 
 #[derive(Clone, Debug)]
 /// The header of a post.
@@ -176,7 +167,13 @@ impl Post {
     /// Return the hash of the post.
     pub fn hash(&self) -> Result<Hash, Error> {
         let buf = self.to_bytes()?;
-        let digest = generichash::hash(&buf, Some(32), None).unwrap();
+
+        // Compute a hash for the post.
+        let digest = if let Ok(hash) = generichash::hash(&buf, Some(32), None) {
+            hash
+        } else {
+            return CableErrorKind::PostHashingFailed {}.raise();
+        };
 
         Ok(digest.as_ref().try_into()?)
     }
@@ -207,9 +204,20 @@ impl Post {
     /// Sign a post using the given secret key.
     pub fn sign(&mut self, secret_key: &[u8; 64]) -> Result<(), Error> {
         let buf = self.to_bytes()?;
-        let sk = SecretKey::from_slice(secret_key).unwrap();
-        // todo: return NoneError
+
+        // Decode the secret key from the byte slice.
+        let sk = if let Some(key) = SecretKey::from_slice(secret_key) {
+            key
+        } else {
+            return CableErrorKind::NoneError {
+                context: "failed to decode secret key from slice".to_string(),
+            }
+            .raise();
+        };
+
+        // Sign the post bytes and update the signature field of the post header.
         self.header.signature = sign::sign_detached(&buf[32 + 64..], &sk).to_bytes();
+
         Ok(())
     }
 
@@ -236,6 +244,7 @@ impl ToBytes for Post {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         let mut buf = vec![0; self.count_bytes()];
         self.write_bytes(&mut buf)?;
+
         Ok(buf)
     }
 
