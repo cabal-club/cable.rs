@@ -20,9 +20,9 @@ pub struct Message {
 /// The header of a request or response message.
 pub struct MessageHeader {
     /// Number of bytes in the rest of the message, not including the `msg_len` field.
-    pub msg_len: Vec<u8>, // varint
+    pub msg_len: u64, // varint
     /// Type identifier for the message (controls which fields follow the header).
-    pub msg_type: Vec<u8>, // varint
+    pub msg_type: u64, // varint
     /// ID of a circuit for an established path; `[0,0,0,0]` for no circuit (current default).
     pub circuit_id: CircuitId,
     /// Unique ID of this request (randomly-assigned).
@@ -34,7 +34,7 @@ pub struct MessageHeader {
 pub enum MessageBody {
     Request {
         /// Number of network hops remaining (must be between 0 and 16).
-        ttl: Vec<u8>, // varint
+        ttl: u8, // varint
         body: RequestBody,
     },
     Response {
@@ -72,16 +72,16 @@ pub enum RequestBody {
         /// Beginning of the time range (in milliseconds since the UNIX Epoch).
         ///
         /// This represents the age of the oldest post the requester is interested in.
-        time_start: Vec<u8>, // varint
+        time_start: u64, // varint
         /// End of the time range (in milliseconds since the UNIX Epoch).
         ///
         /// This represents the age of the newest post the requester is interested in.
         ///
         /// A value of `0` is a keep-alive request; the responder should continue
         /// to send chat messages as they learn of them in the future.
-        time_end: Vec<u8>, // varint
+        time_end: u64, // varint
         /// Maximum numbers of hashes to return.
-        limit: Vec<u8>, // varint
+        limit: u64, // varint
     },
     /// Request posts that describe the current state of a channel and it's members,
     /// and optionally subscribe to future state changes.
@@ -104,7 +104,7 @@ pub enum RequestBody {
         /// held open indefinitely on both the requester and responder side until
         /// either a Cancel Request is issued by the requester or the responder
         /// elects to end the request by sending a Hash Response with hash_count = 0.
-        future: Vec<u8>, // varint
+        future: bool, // varint
     },
     /// Request a list of known channels from peers.
     ///
@@ -114,12 +114,12 @@ pub enum RequestBody {
     /// Message type (`msg_type`) is `6`.
     ChannelList {
         /// Number of channel names to skip (`0` to skip none).
-        offset: Vec<u8>, // varint
+        offset: u64, // varint
         /// Maximum number of channel names to return.
         ///
         /// If set to `0`, the responder must respond with all known channels
         /// (after skipping the first `offset` entries).
-        limit: Vec<u8>, // varint
+        limit: u64, // varint
     },
 }
 
