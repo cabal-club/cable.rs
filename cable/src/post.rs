@@ -15,17 +15,16 @@ use crate::{
     Channel, Hash, Text, Topic,
 };
 
-// TODO: Consider changing `key` and `val` to `String`.
 #[derive(Clone, Debug, PartialEq)]
 /// Information self-published by a user.
 pub struct UserInfo {
-    pub key: Vec<u8>,
-    pub val: Vec<u8>,
+    pub key: String,
+    pub val: String,
 }
 
 impl UserInfo {
     /// Convenience method to construct `UserInfo`.
-    pub fn new<T: Into<Vec<u8>>, U: Into<Vec<u8>>>(key: T, val: U) -> Self {
+    pub fn new<T: Into<String>, U: Into<String>>(key: T, val: U) -> Self {
         UserInfo {
             key: key.into(),
             val: val.into(),
@@ -308,10 +307,10 @@ impl ToBytes for Post {
             PostBody::Info { info } => {
                 for UserInfo { key, val } in info {
                     offset += varint::encode(key.len() as u64, &mut buf[offset..])?;
-                    buf[offset..offset + key.len()].copy_from_slice(key);
+                    buf[offset..offset + key.len()].copy_from_slice(key.as_bytes());
                     offset += key.len();
                     offset += varint::encode(val.len() as u64, &mut buf[offset..])?;
-                    buf[offset..offset + val.len()].copy_from_slice(val);
+                    buf[offset..offset + val.len()].copy_from_slice(val.as_bytes());
                     offset += val.len();
                 }
 
@@ -456,7 +455,7 @@ impl FromBytes for Post {
                     }
 
                     // Read the key bytes and increment the offset.
-                    let key = buf[offset..offset + key_len as usize].to_vec();
+                    let key = String::from_utf8(buf[offset..offset + key_len as usize].to_vec())?;
                     offset += key_len as usize;
 
                     // Read the val length byte and increment the offset.
@@ -464,7 +463,7 @@ impl FromBytes for Post {
                     offset += s;
 
                     // Read the val bytes and increment the offset.
-                    let val = buf[offset..offset + val_len as usize].to_vec();
+                    let val = String::from_utf8(buf[offset..offset + val_len as usize].to_vec())?;
                     offset += val_len as usize;
 
                     let key_val = UserInfo::new(key, val);
@@ -810,8 +809,8 @@ mod test {
 
         /* BODY FIELD VALUES */
 
-        let key = "name".to_string();
-        let val = "cabler".to_string();
+        let key = "name";
+        let val = "cabler";
         let user_info = UserInfo::new(key, val);
 
         // Construct a new post body.
@@ -1095,8 +1094,8 @@ mod test {
 
         /* BODY FIELD VALUES */
 
-        let key = "name".to_string();
-        let val = "cabler".to_string();
+        let key = "name";
+        let val = "cabler";
         let expected_info = vec![UserInfo::new(key, val)];
 
         // Ensure the post body fields are correct.
