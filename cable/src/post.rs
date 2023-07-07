@@ -166,6 +166,23 @@ impl Post {
         }
     }
 
+    /// Return the timestamp of the post.
+    pub fn get_timestamp(&self) -> Option<u64> {
+        match &self.header {
+            PostHeader { timestamp, .. } => Some(*timestamp),
+        }
+    }
+
+    /// Check if the post has a signature.
+    pub fn is_signed(&self) -> bool {
+        for i in 0..self.header.signature.len() {
+            if self.header.signature[i] != 0 {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /// Return the numeric type identifier for the post.
     pub fn post_type(&self) -> u64 {
         match &self.body {
@@ -186,16 +203,6 @@ impl Post {
         // todo: return NoneError
         self.header.signature = sign::sign_detached(&buf[32 + 64..], &sk).to_bytes();
         Ok(())
-    }
-
-    /// Check if the post has a signature.
-    pub fn is_signed(&self) -> bool {
-        for i in 0..self.header.signature.len() {
-            if self.header.signature[i] != 0 {
-                return true;
-            }
-        }
-        return false;
     }
 
     /// Verify the signature of an encoded post.
