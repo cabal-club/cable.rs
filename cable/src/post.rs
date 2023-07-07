@@ -604,6 +604,68 @@ mod test {
         Ok(())
     }
 
+    #[test]
+    fn get_timestamp_from_leave_post() -> Result<(), Error> {
+        // TODO: Write a helper function to provide shared values.
+        // E.g. public_key, links and timestamp.
+
+        /* HEADER FIELD VALUES */
+
+        let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
+        let signature = <[u8; 64]>::from_hex("abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805")?;
+        let links = <Vec<u8>>::from_hex(POST_HASH)?;
+        let post_type = 5;
+        let timestamp = 80;
+
+        let header = PostHeader::new(public_key, signature, links, post_type, timestamp);
+
+        /* BODY FIELD VALUES */
+
+        let body = PostBody::Leave {
+            channel: "default".to_string().into_bytes(),
+        };
+
+        let post = Post { header, body };
+
+        if let Some(retrieved_timestamp) = post.get_timestamp() {
+            assert_eq!(retrieved_timestamp, timestamp)
+        } else {
+            panic!("Failed to retrieve timestamp from leave post");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn is_signed_text_post() -> Result<(), Error> {
+        /* HEADER FIELD VALUES */
+
+        let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
+        let signature = <[u8; 64]>::from_hex("6725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05")?;
+        let links = <Vec<u8>>::from_hex(POST_HASH)?;
+        let post_type = 0;
+        let timestamp = 80;
+
+        // Construct a new post header.
+        let header = PostHeader::new(public_key, signature, links, post_type, timestamp);
+
+        /* BODY FIELD VALUES */
+
+        let channel: Vec<u8> = "default".to_string().into();
+        let text: Vec<u8> = "h€llo world".to_string().into();
+
+        // Construct a new post body.
+        let body = PostBody::Text { channel, text };
+
+        // Construct a new post.
+        let post = Post::new(header, body);
+
+        // Ensure the post is signed.
+        assert!(post.is_signed());
+
+        Ok(())
+    }
+
     /* POST TO BYTES TESTS */
 
     #[test]
@@ -1140,35 +1202,6 @@ mod test {
             assert_eq!(channel, expected_channel);
         } else {
             panic!("Incorrect post type: expected leave");
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn get_timestamp_from_leave_post() -> Result<(), Error> {
-        /* HEADER FIELD VALUES */
-
-        let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
-        let signature = <[u8; 64]>::from_hex("abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805")?;
-        let links = <Vec<u8>>::from_hex(POST_HASH)?;
-        let post_type = 5;
-        let timestamp = 80;
-
-        let header = PostHeader::new(public_key, signature, links, post_type, timestamp);
-
-        /* BODY FIELD VALUES */
-
-        let body = PostBody::Leave {
-            channel: "default".to_string().into_bytes(),
-        };
-
-        let post = Post { header, body };
-
-        if let Some(retrieved_timestamp) = post.get_timestamp() {
-            assert_eq!(retrieved_timestamp, timestamp)
-        } else {
-            panic!("Failed to retrieve timestamp from leave post");
         }
 
         Ok(())
