@@ -292,7 +292,8 @@ impl ToBytes for Post {
         match &self.body {
             PostBody::Text { channel, text } => {
                 offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
-                buf[offset..offset + channel.len()].copy_from_slice(channel);
+                //buf[offset..offset + channel.len()].copy_from_slice(&channel.into_bytes());
+                buf[offset..offset + channel.len()].copy_from_slice(channel.as_bytes());
                 offset += channel.len();
 
                 offset += varint::encode(text.len() as u64, &mut buf[offset..])?;
@@ -320,7 +321,7 @@ impl ToBytes for Post {
             }
             PostBody::Topic { channel, topic } => {
                 offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
-                buf[offset..offset + channel.len()].copy_from_slice(channel);
+                buf[offset..offset + channel.len()].copy_from_slice(channel.as_bytes());
                 offset += channel.len();
                 offset += varint::encode(topic.len() as u64, &mut buf[offset..])?;
                 buf[offset..offset + topic.len()].copy_from_slice(topic);
@@ -328,12 +329,12 @@ impl ToBytes for Post {
             }
             PostBody::Join { channel } => {
                 offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
-                buf[offset..offset + channel.len()].copy_from_slice(channel);
+                buf[offset..offset + channel.len()].copy_from_slice(channel.as_bytes());
                 offset += channel.len();
             }
             PostBody::Leave { channel } => {
                 offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
-                buf[offset..offset + channel.len()].copy_from_slice(channel);
+                buf[offset..offset + channel.len()].copy_from_slice(channel.as_bytes());
                 offset += channel.len();
             }
             PostBody::Unrecognized { post_type } => {
@@ -406,7 +407,8 @@ impl FromBytes for Post {
                 offset += s;
 
                 // Read the channel bytes and increment the offset.
-                let channel = buf[offset..offset + channel_len as usize].to_vec();
+                let channel =
+                    String::from_utf8(buf[offset..offset + channel_len as usize].to_vec())?;
                 offset += channel_len as usize;
 
                 // Read the text length byte and increment the offset.
@@ -479,7 +481,8 @@ impl FromBytes for Post {
                 offset += s;
 
                 // Read the channel bytes and increment the offset.
-                let channel = buf[offset..offset + channel_len as usize].to_vec();
+                let channel =
+                    String::from_utf8(buf[offset..offset + channel_len as usize].to_vec())?;
                 offset += channel_len as usize;
 
                 // Read the topic length byte and increment the offset.
@@ -499,7 +502,8 @@ impl FromBytes for Post {
                 offset += s;
 
                 // Read the channel bytes and increment the offset.
-                let channel = buf[offset..offset + channel_len as usize].to_vec();
+                let channel =
+                    String::from_utf8(buf[offset..offset + channel_len as usize].to_vec())?;
                 offset += s;
 
                 PostBody::Join { channel }
@@ -511,7 +515,8 @@ impl FromBytes for Post {
                 offset += s;
 
                 // Read the channel bytes and increment the offset.
-                let channel = buf[offset..offset + channel_len as usize].to_vec();
+                let channel =
+                    String::from_utf8(buf[offset..offset + channel_len as usize].to_vec())?;
                 offset += s;
 
                 PostBody::Leave { channel }
