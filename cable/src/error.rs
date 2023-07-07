@@ -22,7 +22,9 @@ pub enum CableErrorKind {
     MessageChannelTimeRangeRequestEnd {},
     MessageChannelStateRequestEnd {},
     MessageChannelListRequestEnd {},
+    NoneError { context: String },
     PostWriteUnrecognizedType { post_type: u64 },
+    PostHashingFailed {},
 }
 
 impl CableErrorKind {
@@ -78,6 +80,12 @@ impl std::fmt::Display for CableError {
             }
             CableErrorKind::MessageChannelListRequestEnd {} => {
                 write![f, "unexpected end of ChannelListRequest"]
+            }
+            CableErrorKind::NoneError { context } => {
+                write![f, "expected data but got none: {}", context]
+            }
+            CableErrorKind::PostHashingFailed {} => {
+                write![f, "failed to compute hash for post"]
             }
             CableErrorKind::PostWriteUnrecognizedType { post_type } => {
                 write![f, "cannot write unrecognized post_type={}", post_type]
