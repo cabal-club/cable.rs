@@ -626,7 +626,7 @@ mod test {
 
         /* BODY FIELD VALUES */
 
-        let channel = "default".to_string().into_bytes();
+        let channel = "default".to_string();
 
         // Construct a new post body.
         let body = PostBody::Join {
@@ -663,7 +663,7 @@ mod test {
         /* BODY FIELD VALUES */
 
         let body = PostBody::Leave {
-            channel: "default".to_string().into_bytes(),
+            channel: "default".to_string(),
         };
 
         let post = Post { header, body };
@@ -692,7 +692,7 @@ mod test {
 
         /* BODY FIELD VALUES */
 
-        let channel: Vec<u8> = "default".to_string().into();
+        let channel = "default".to_string();
         let text: Vec<u8> = "h€llo world".to_string().into();
 
         // Construct a new post body.
@@ -724,7 +724,7 @@ mod test {
 
         /* BODY FIELD VALUES */
 
-        let channel: Vec<u8> = "default".to_string().into();
+        let channel = "default".to_string();
         let text: Vec<u8> = "h€llo world".to_string().into();
 
         // Construct a new post body.
@@ -994,7 +994,7 @@ mod test {
 
         /* BODY FIELD VALUES */
 
-        let expected_channel: Vec<u8> = "default".to_string().into();
+        let expected_channel = "default".to_string();
         let expected_text: Vec<u8> = "h€llo world".to_string().into();
 
         // Ensure the post body fields are correct.
@@ -1142,7 +1142,7 @@ mod test {
 
         /* BODY FIELD VALUES */
 
-        let expected_channel = "default".to_string().into_bytes();
+        let expected_channel = "default".to_string();
         let expected_topic = "introduce yourself to the friendly crowd of likeminded folx"
             .to_string()
             .into_bytes();
@@ -1191,7 +1191,7 @@ mod test {
 
         /* BODY FIELD VALUES */
 
-        let expected_channel = "default".to_string().into_bytes();
+        let expected_channel = "default".to_string();
 
         // Ensure the post body fields are correct.
         if let PostBody::Join { channel } = post.body {
@@ -1236,7 +1236,7 @@ mod test {
 
         /* BODY FIELD VALUES */
 
-        let expected_channel = "default".to_string().into_bytes();
+        let expected_channel = "default".to_string();
 
         // Ensure the post body fields are correct.
         if let PostBody::Leave { channel } = post.body {
