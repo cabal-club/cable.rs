@@ -578,7 +578,7 @@ impl CountBytes for Post {
 
 #[cfg(test)]
 mod test {
-    use super::{FromBytes, Post, PostBody, PostHeader, ToBytes, UserInfo};
+    use super::{Error, FromBytes, Post, PostBody, PostHeader, ToBytes, UserInfo};
 
     use hex::FromHex;
 
@@ -594,25 +594,25 @@ mod test {
     const LEAVE_POST_HEX_BINARY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b305500764656661756c74";
 
     #[test]
-    fn verify_post() {
+    fn verify_post() -> Result<(), Error> {
         // Encoded text post.
-        let buffer = <Vec<u8>>::from_hex(TEXT_POST_HEX_BINARY).unwrap();
+        let buffer = <Vec<u8>>::from_hex(TEXT_POST_HEX_BINARY)?;
 
         let result = Post::verify(&buffer);
         assert_eq!(result, true);
+
+        Ok(())
     }
 
     /* POST TO BYTES TESTS */
 
     #[test]
-    fn text_post_to_bytes() {
-        // TODO: Return `Result` and replace `unwrap()` with `?`.
-
+    fn text_post_to_bytes() -> Result<(), Error> {
         /* HEADER FIELD VALUES */
 
-        let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
-        let signature = <[u8; 64]>::from_hex("6725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05").unwrap();
-        let links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
+        let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
+        let signature = <[u8; 64]>::from_hex("6725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05")?;
+        let links = <Vec<u8>>::from_hex(POST_HASH)?;
         let post_type = 0;
         let timestamp = 80;
 
@@ -630,10 +630,10 @@ mod test {
         // Construct a new post.
         let post = Post::new(header, body);
         // Convert the post to bytes.
-        let post_bytes = post.to_bytes().unwrap();
+        let post_bytes = post.to_bytes()?;
 
         // Test vector binary.
-        let expected_bytes = <Vec<u8>>::from_hex(TEXT_POST_HEX_BINARY).unwrap();
+        let expected_bytes = <Vec<u8>>::from_hex(TEXT_POST_HEX_BINARY)?;
 
         // Ensure the number of generated post bytes matches the number of
         // expected bytes.
@@ -641,15 +641,17 @@ mod test {
 
         // Ensure the generated post bytes match the expected bytes.
         assert_eq!(post_bytes, expected_bytes);
+
+        Ok(())
     }
 
     #[test]
-    fn delete_post_to_bytes() {
+    fn delete_post_to_bytes() -> Result<(), Error> {
         /* HEADER FIELD VALUES */
 
-        let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
-        let signature = <[u8; 64]>::from_hex("affe77e3b3156cda7feea042269bb7e93f5031662c70610d37baa69132b4150c18d67cb2ac24fb0f9be0a6516e53ba2f3bbc5bd8e7a1bff64d9c78ce0c2e4205").unwrap();
-        let links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
+        let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
+        let signature = <[u8; 64]>::from_hex("affe77e3b3156cda7feea042269bb7e93f5031662c70610d37baa69132b4150c18d67cb2ac24fb0f9be0a6516e53ba2f3bbc5bd8e7a1bff64d9c78ce0c2e4205")?;
+        let links = <Vec<u8>>::from_hex(POST_HASH)?;
         let post_type = 1;
         let timestamp = 80;
 
@@ -659,21 +661,15 @@ mod test {
         /* BODY FIELD VALUES */
 
         // Concatenate the hashes into a single `Vec<u8>`.
-        let mut hashes =
-            <Vec<u8>>::from_hex("15ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e5")
-                .unwrap();
-        hashes.append(
-            &mut <Vec<u8>>::from_hex(
-                "97fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db68",
-            )
-            .unwrap(),
-        );
-        hashes.append(
-            &mut <Vec<u8>>::from_hex(
-                "9c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa",
-            )
-            .unwrap(),
-        );
+        let mut hashes = <Vec<u8>>::from_hex(
+            "15ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e5",
+        )?;
+        hashes.append(&mut <Vec<u8>>::from_hex(
+            "97fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db68",
+        )?);
+        hashes.append(&mut <Vec<u8>>::from_hex(
+            "9c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa",
+        )?);
 
         // Construct a new post body.
         let body = PostBody::Delete { hashes };
@@ -681,10 +677,10 @@ mod test {
         // Construct a new post.
         let post = Post::new(header, body);
         // Convert the post to bytes.
-        let post_bytes = post.to_bytes().unwrap();
+        let post_bytes = post.to_bytes()?;
 
         // Test vector binary.
-        let expected_bytes = <Vec<u8>>::from_hex(DELETE_POST_HEX_BINARY).unwrap();
+        let expected_bytes = <Vec<u8>>::from_hex(DELETE_POST_HEX_BINARY)?;
 
         // Ensure the number of generated post bytes matches the number of
         // expected bytes.
@@ -692,15 +688,17 @@ mod test {
 
         // Ensure the generated post bytes match the expected bytes.
         assert_eq!(post_bytes, expected_bytes);
+
+        Ok(())
     }
 
     #[test]
-    fn info_post_to_bytes() {
+    fn info_post_to_bytes() -> Result<(), Error> {
         /* HEADER FIELD VALUES */
 
-        let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
-        let signature = <[u8; 64]>::from_hex("f70273779147a3b756407d5660ed2e8e2975abc5ab224fb152aa2bfb3dd331740a66e0718cd580bc94978c1c3cd4524ad8cb2f4cca80df481010c3ef834ac700").unwrap();
-        let links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
+        let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
+        let signature = <[u8; 64]>::from_hex("f70273779147a3b756407d5660ed2e8e2975abc5ab224fb152aa2bfb3dd331740a66e0718cd580bc94978c1c3cd4524ad8cb2f4cca80df481010c3ef834ac700")?;
+        let links = <Vec<u8>>::from_hex(POST_HASH)?;
         let post_type = 2;
         let timestamp = 80;
 
@@ -721,10 +719,10 @@ mod test {
         // Construct a new post.
         let post = Post::new(header, body);
         // Convert the post to bytes.
-        let post_bytes = post.to_bytes().unwrap();
+        let post_bytes = post.to_bytes()?;
 
         // Test vector binary.
-        let expected_bytes = <Vec<u8>>::from_hex(INFO_POST_HEX_BINARY).unwrap();
+        let expected_bytes = <Vec<u8>>::from_hex(INFO_POST_HEX_BINARY)?;
 
         // Ensure the number of generated post bytes matches the number of
         // expected bytes.
@@ -732,15 +730,17 @@ mod test {
 
         // Ensure the generated post bytes match the expected bytes.
         assert_eq!(post_bytes, expected_bytes);
+
+        Ok(())
     }
 
     #[test]
-    fn topic_post_to_bytes() {
+    fn topic_post_to_bytes() -> Result<(), Error> {
         /* HEADER FIELD VALUES */
 
-        let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
-        let signature = <[u8; 64]>::from_hex("bf7578e781caee4ca708281645b291a2100c4f2138f0e0ac98bc2b4a414b4ba8dca08285751114b05f131421a1745b648c43b17b05392593237dfacc8dff5208").unwrap();
-        let links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
+        let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
+        let signature = <[u8; 64]>::from_hex("bf7578e781caee4ca708281645b291a2100c4f2138f0e0ac98bc2b4a414b4ba8dca08285751114b05f131421a1745b648c43b17b05392593237dfacc8dff5208")?;
+        let links = <Vec<u8>>::from_hex(POST_HASH)?;
         let post_type = 3;
         let timestamp = 80;
 
@@ -761,10 +761,10 @@ mod test {
         // Construct a new post.
         let post = Post::new(header, body);
         // Convert the post to bytes.
-        let post_bytes = post.to_bytes().unwrap();
+        let post_bytes = post.to_bytes()?;
 
         // Test vector binary.
-        let expected_bytes = <Vec<u8>>::from_hex(TOPIC_POST_HEX_BINARY).unwrap();
+        let expected_bytes = <Vec<u8>>::from_hex(TOPIC_POST_HEX_BINARY)?;
 
         // Ensure the number of generated post bytes matches the number of
         // expected bytes.
@@ -772,15 +772,17 @@ mod test {
 
         // Ensure the generated post bytes match the expected bytes.
         assert_eq!(post_bytes, expected_bytes);
+
+        Ok(())
     }
 
     #[test]
-    fn join_post_to_bytes() {
+    fn join_post_to_bytes() -> Result<(), Error> {
         /* HEADER FIELD VALUES */
 
-        let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
-        let signature = <[u8; 64]>::from_hex("64425f10fa34c1e14b6101491772d3c5f15f720a952dd56c27d5ad52f61f695130ce286de73e332612b36242339b61c9e12397f5dcc94c79055c7e1cb1dbfb08").unwrap();
-        let links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
+        let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
+        let signature = <[u8; 64]>::from_hex("64425f10fa34c1e14b6101491772d3c5f15f720a952dd56c27d5ad52f61f695130ce286de73e332612b36242339b61c9e12397f5dcc94c79055c7e1cb1dbfb08")?;
+        let links = <Vec<u8>>::from_hex(POST_HASH)?;
         let post_type = 4;
         let timestamp = 80;
 
@@ -799,10 +801,10 @@ mod test {
         // Construct a new post.
         let post = Post::new(header, body);
         // Convert the post to bytes.
-        let post_bytes = post.to_bytes().unwrap();
+        let post_bytes = post.to_bytes()?;
 
         // Test vector binary.
-        let expected_bytes = <Vec<u8>>::from_hex(JOIN_POST_HEX_BINARY).unwrap();
+        let expected_bytes = <Vec<u8>>::from_hex(JOIN_POST_HEX_BINARY)?;
 
         // Ensure the number of generated post bytes matches the number of
         // expected bytes.
@@ -810,15 +812,17 @@ mod test {
 
         // Ensure the generated post bytes match the expected bytes.
         assert_eq!(post_bytes, expected_bytes);
+
+        Ok(())
     }
 
     #[test]
-    fn leave_post_to_bytes() {
+    fn leave_post_to_bytes() -> Result<(), Error> {
         /* HEADER FIELD VALUES */
 
-        let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
-        let signature = <[u8; 64]>::from_hex("abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805").unwrap();
-        let links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
+        let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
+        let signature = <[u8; 64]>::from_hex("abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805")?;
+        let links = <Vec<u8>>::from_hex(POST_HASH)?;
         let post_type = 5;
         let timestamp = 80;
 
@@ -837,10 +841,10 @@ mod test {
         // Construct a new post.
         let post = Post::new(header, body);
         // Convert the post to bytes.
-        let post_bytes = post.to_bytes().unwrap();
+        let post_bytes = post.to_bytes()?;
 
         // Test vector binary.
-        let expected_bytes = <Vec<u8>>::from_hex(LEAVE_POST_HEX_BINARY).unwrap();
+        let expected_bytes = <Vec<u8>>::from_hex(LEAVE_POST_HEX_BINARY)?;
 
         // Ensure the number of generated post bytes matches the number of
         // expected bytes.
@@ -848,23 +852,25 @@ mod test {
 
         // Ensure the generated post bytes match the expected bytes.
         assert_eq!(post_bytes, expected_bytes);
+
+        Ok(())
     }
 
     /* BYTES TO POST TESTS */
 
     #[test]
-    fn bytes_to_text_post() {
+    fn bytes_to_text_post() -> Result<(), Error> {
         // Test vector binary.
-        let post_bytes = <Vec<u8>>::from_hex(TEXT_POST_HEX_BINARY).unwrap();
+        let post_bytes = <Vec<u8>>::from_hex(TEXT_POST_HEX_BINARY)?;
 
         // Decode the byte slice to a `Post`.
-        let (_, post) = Post::from_bytes(&post_bytes).unwrap();
+        let (_, post) = Post::from_bytes(&post_bytes)?;
 
         /* HEADER FIELD VALUES */
 
-        let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
-        let expected_signature = <[u8; 64]>::from_hex("6725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05").unwrap();
-        let expected_links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
+        let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
+        let expected_signature = <[u8; 64]>::from_hex("6725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05")?;
+        let expected_links = <Vec<u8>>::from_hex(POST_HASH)?;
         let expected_post_type = 0;
         let expected_timestamp = 80;
 
@@ -895,21 +901,23 @@ mod test {
         } else {
             panic!("Incorrect post type: expected text");
         }
+
+        Ok(())
     }
 
     #[test]
-    fn bytes_to_delete_post() {
+    fn bytes_to_delete_post() -> Result<(), Error> {
         // Test vector binary.
-        let post_bytes = <Vec<u8>>::from_hex(DELETE_POST_HEX_BINARY).unwrap();
+        let post_bytes = <Vec<u8>>::from_hex(DELETE_POST_HEX_BINARY)?;
 
         // Decode the byte slice to a `Post`.
-        let (_, post) = Post::from_bytes(&post_bytes).unwrap();
+        let (_, post) = Post::from_bytes(&post_bytes)?;
 
         /* HEADER FIELD VALUES */
 
-        let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
-        let expected_signature = <[u8; 64]>::from_hex("affe77e3b3156cda7feea042269bb7e93f5031662c70610d37baa69132b4150c18d67cb2ac24fb0f9be0a6516e53ba2f3bbc5bd8e7a1bff64d9c78ce0c2e4205").unwrap();
-        let expected_links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
+        let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
+        let expected_signature = <[u8; 64]>::from_hex("affe77e3b3156cda7feea042269bb7e93f5031662c70610d37baa69132b4150c18d67cb2ac24fb0f9be0a6516e53ba2f3bbc5bd8e7a1bff64d9c78ce0c2e4205")?;
+        let expected_links = <Vec<u8>>::from_hex(POST_HASH)?;
         let expected_post_type = 1;
         let expected_timestamp = 80;
 
@@ -931,21 +939,15 @@ mod test {
         /* BODY FIELD VALUES */
 
         // Concatenate the hashes into a single `Vec<u8>`.
-        let mut expected_hashes =
-            <Vec<u8>>::from_hex("15ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e5")
-                .unwrap();
-        expected_hashes.append(
-            &mut <Vec<u8>>::from_hex(
-                "97fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db68",
-            )
-            .unwrap(),
-        );
-        expected_hashes.append(
-            &mut <Vec<u8>>::from_hex(
-                "9c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa",
-            )
-            .unwrap(),
-        );
+        let mut expected_hashes = <Vec<u8>>::from_hex(
+            "15ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e5",
+        )?;
+        expected_hashes.append(&mut <Vec<u8>>::from_hex(
+            "97fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db68",
+        )?);
+        expected_hashes.append(&mut <Vec<u8>>::from_hex(
+            "9c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa",
+        )?);
 
         // Ensure the post body fields are correct.
         if let PostBody::Delete { hashes } = post.body {
@@ -953,21 +955,23 @@ mod test {
         } else {
             panic!("Incorrect post type: expected delete");
         }
+
+        Ok(())
     }
 
     #[test]
-    fn bytes_to_info_post() {
+    fn bytes_to_info_post() -> Result<(), Error> {
         // Test vector binary.
-        let post_bytes = <Vec<u8>>::from_hex(INFO_POST_HEX_BINARY).unwrap();
+        let post_bytes = <Vec<u8>>::from_hex(INFO_POST_HEX_BINARY)?;
 
         // Decode the byte slice to a `Post`.
-        let (_, post) = Post::from_bytes(&post_bytes).unwrap();
+        let (_, post) = Post::from_bytes(&post_bytes)?;
 
         /* HEADER FIELD VALUES */
 
-        let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
-        let expected_signature = <[u8; 64]>::from_hex("f70273779147a3b756407d5660ed2e8e2975abc5ab224fb152aa2bfb3dd331740a66e0718cd580bc94978c1c3cd4524ad8cb2f4cca80df481010c3ef834ac700").unwrap();
-        let expected_links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
+        let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
+        let expected_signature = <[u8; 64]>::from_hex("f70273779147a3b756407d5660ed2e8e2975abc5ab224fb152aa2bfb3dd331740a66e0718cd580bc94978c1c3cd4524ad8cb2f4cca80df481010c3ef834ac700")?;
+        let expected_links = <Vec<u8>>::from_hex(POST_HASH)?;
         let expected_post_type = 2;
         let expected_timestamp = 80;
 
@@ -998,21 +1002,23 @@ mod test {
         } else {
             panic!("Incorrect post type: expected info");
         }
+
+        Ok(())
     }
 
     #[test]
-    fn bytes_to_topic_post() {
+    fn bytes_to_topic_post() -> Result<(), Error> {
         // Test vector binary.
-        let post_bytes = <Vec<u8>>::from_hex(TOPIC_POST_HEX_BINARY).unwrap();
+        let post_bytes = <Vec<u8>>::from_hex(TOPIC_POST_HEX_BINARY)?;
 
         // Decode the byte slice to a `Post`.
-        let (_, post) = Post::from_bytes(&post_bytes).unwrap();
+        let (_, post) = Post::from_bytes(&post_bytes)?;
 
         /* HEADER FIELD VALUES */
 
-        let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
-        let expected_signature = <[u8; 64]>::from_hex("bf7578e781caee4ca708281645b291a2100c4f2138f0e0ac98bc2b4a414b4ba8dca08285751114b05f131421a1745b648c43b17b05392593237dfacc8dff5208").unwrap();
-        let expected_links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
+        let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
+        let expected_signature = <[u8; 64]>::from_hex("bf7578e781caee4ca708281645b291a2100c4f2138f0e0ac98bc2b4a414b4ba8dca08285751114b05f131421a1745b648c43b17b05392593237dfacc8dff5208")?;
+        let expected_links = <Vec<u8>>::from_hex(POST_HASH)?;
         let expected_post_type = 3;
         let expected_timestamp = 80;
 
@@ -1045,21 +1051,23 @@ mod test {
         } else {
             panic!("Incorrect post type: expected topic");
         }
+
+        Ok(())
     }
 
     #[test]
-    fn bytes_to_join_post() {
+    fn bytes_to_join_post() -> Result<(), Error> {
         // Test vector binary.
-        let post_bytes = <Vec<u8>>::from_hex(JOIN_POST_HEX_BINARY).unwrap();
+        let post_bytes = <Vec<u8>>::from_hex(JOIN_POST_HEX_BINARY)?;
 
         // Decode the byte slice to a `Post`.
-        let (_, post) = Post::from_bytes(&post_bytes).unwrap();
+        let (_, post) = Post::from_bytes(&post_bytes)?;
 
         /* HEADER FIELD VALUES */
 
-        let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
-        let expected_signature = <[u8; 64]>::from_hex("64425f10fa34c1e14b6101491772d3c5f15f720a952dd56c27d5ad52f61f695130ce286de73e332612b36242339b61c9e12397f5dcc94c79055c7e1cb1dbfb08").unwrap();
-        let expected_links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
+        let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
+        let expected_signature = <[u8; 64]>::from_hex("64425f10fa34c1e14b6101491772d3c5f15f720a952dd56c27d5ad52f61f695130ce286de73e332612b36242339b61c9e12397f5dcc94c79055c7e1cb1dbfb08")?;
+        let expected_links = <Vec<u8>>::from_hex(POST_HASH)?;
         let expected_post_type = 4;
         let expected_timestamp = 80;
 
@@ -1088,21 +1096,23 @@ mod test {
         } else {
             panic!("Incorrect post type: expected join");
         }
+
+        Ok(())
     }
 
     #[test]
-    fn bytes_to_leave_post() {
+    fn bytes_to_leave_post() -> Result<(), Error> {
         // Test vector binary.
-        let post_bytes = <Vec<u8>>::from_hex(LEAVE_POST_HEX_BINARY).unwrap();
+        let post_bytes = <Vec<u8>>::from_hex(LEAVE_POST_HEX_BINARY)?;
 
         // Decode the byte slice to a `Post`.
-        let (_, post) = Post::from_bytes(&post_bytes).unwrap();
+        let (_, post) = Post::from_bytes(&post_bytes)?;
 
         /* HEADER FIELD VALUES */
 
-        let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY).unwrap();
-        let expected_signature = <[u8; 64]>::from_hex("abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805").unwrap();
-        let expected_links = <Vec<u8>>::from_hex(POST_HASH).unwrap();
+        let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
+        let expected_signature = <[u8; 64]>::from_hex("abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805")?;
+        let expected_links = <Vec<u8>>::from_hex(POST_HASH)?;
         let expected_post_type = 5;
         let expected_timestamp = 80;
 
@@ -1131,5 +1141,7 @@ mod test {
         } else {
             panic!("Incorrect post type: expected leave");
         }
+
+        Ok(())
     }
 }
