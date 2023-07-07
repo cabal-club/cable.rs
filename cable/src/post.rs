@@ -297,7 +297,7 @@ impl ToBytes for Post {
                 offset += channel.len();
 
                 offset += varint::encode(text.len() as u64, &mut buf[offset..])?;
-                buf[offset..offset + text.len()].copy_from_slice(text);
+                buf[offset..offset + text.len()].copy_from_slice(text.as_bytes());
                 offset += text.len();
             }
             PostBody::Delete { hashes } => {
@@ -416,7 +416,7 @@ impl FromBytes for Post {
                 offset += s;
 
                 // Read the text bytes and increment the offset.
-                let text = buf[offset..offset + text_len as usize].to_vec();
+                let text = String::from_utf8(buf[offset..offset + text_len as usize].to_vec())?;
                 offset += text_len as usize;
 
                 PostBody::Text { channel, text }
@@ -693,7 +693,7 @@ mod test {
         /* BODY FIELD VALUES */
 
         let channel = "default".to_string();
-        let text: Vec<u8> = "h€llo world".to_string().into();
+        let text = "h€llo world".to_string();
 
         // Construct a new post body.
         let body = PostBody::Text { channel, text };
@@ -725,7 +725,7 @@ mod test {
         /* BODY FIELD VALUES */
 
         let channel = "default".to_string();
-        let text: Vec<u8> = "h€llo world".to_string().into();
+        let text = "h€llo world".to_string();
 
         // Construct a new post body.
         let body = PostBody::Text { channel, text };
@@ -995,7 +995,7 @@ mod test {
         /* BODY FIELD VALUES */
 
         let expected_channel = "default".to_string();
-        let expected_text: Vec<u8> = "h€llo world".to_string().into();
+        let expected_text = "h€llo world".to_string();
 
         // Ensure the post body fields are correct.
         if let PostBody::Text { channel, text } = post.body {

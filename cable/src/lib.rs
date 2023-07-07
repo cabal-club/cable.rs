@@ -2,12 +2,13 @@ mod error;
 mod message;
 mod post;
 
+// TODO: Add a validation function to check length.
 pub type Channel = String;
 pub type CircuitId = [u8; 4];
 pub type Hash = [u8; 32];
 pub type ReqId = [u8; 4];
-// TODO: Consider changing this to `String`.
-pub type Text = Vec<u8>;
+pub type Text = String;
+// TODO: Add a validation function to check length.
 pub type Topic = String;
 
 #[derive(Clone, Debug)]
