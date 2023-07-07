@@ -48,8 +48,6 @@ pub enum RequestBody {
     ///
     /// Message type (`msg_type`) is `2`.
     Post {
-        /// Number of hashes being requested.
-        hash_count: Vec<u8>, // varint
         /// Hashes being requested (concatenated together).
         hashes: Vec<Hash>,
     },
@@ -65,8 +63,6 @@ pub enum RequestBody {
     ///
     /// Message type (`msg_type`) is `4`.
     ChannelTimeRange {
-        /// Length of the channel's name in bytes.
-        channel_len: Vec<u8>, // varint
         /// Channel name (UTF-8).
         channel: Channel,
         /// Beginning of the time range (in milliseconds since the UNIX Epoch).
@@ -88,8 +84,6 @@ pub enum RequestBody {
     ///
     /// Message type (`msg_type`) is `5`.
     ChannelState {
-        /// Length of the channel's name in bytes.
-        channel_len: Vec<u8>, // varint
         /// Channel name (UTF-8).
         channel: Channel,
         /// Whether to include live/future state hashes.
@@ -129,8 +123,6 @@ pub enum ResponseBody {
     ///
     /// Message type (`msg_type`) is `0`.
     Hash {
-        /// Number of hashes in the response.
-        hash_count: Vec<u8>, // varint
         /// Hashes being sent in response (concatenated together).
         hashes: Vec<Hash>,
     },
