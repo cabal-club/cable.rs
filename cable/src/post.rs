@@ -179,12 +179,23 @@ impl Post {
         }
     }
 
+    /// Sign a post using the given secret key.
     pub fn sign(&mut self, secret_key: &[u8; 64]) -> Result<(), Error> {
         let buf = self.to_bytes()?;
         let sk = SecretKey::from_slice(secret_key).unwrap();
         // todo: return NoneError
         self.header.signature = sign::sign_detached(&buf[32 + 64..], &sk).to_bytes();
         Ok(())
+    }
+
+    /// Check if the post has a signature.
+    pub fn is_signed(&self) -> bool {
+        for i in 0..self.header.signature.len() {
+            if self.header.signature[i] != 0 {
+                return true;
+            }
+        }
+        return false;
     }
 
     /// Verify the signature of an encoded post.
