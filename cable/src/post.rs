@@ -160,9 +160,9 @@ impl Post {
 
     /// Return the timestamp of the post.
     pub fn get_timestamp(&self) -> Option<u64> {
-        match &self.header {
-            PostHeader { timestamp, .. } => Some(*timestamp),
-        }
+        let PostHeader { timestamp, .. } = &self.header;
+
+        Some(*timestamp)
     }
 
     /// Return the hash of the post.
@@ -186,7 +186,8 @@ impl Post {
                 return true;
             }
         }
-        return false;
+
+        false
     }
 
     /// Return the numeric type identifier for the post.
@@ -375,7 +376,7 @@ impl FromBytes for Post {
 
         // Read the links bytes from the buffer and increment the offset.
         let links = buf[offset..offset + links_len].to_vec();
-        offset += links_len as usize;
+        offset += links_len;
 
         // Read the post-type byte from the buffer and increment the offset.
         let (s, post_type) = varint::decode(&buf[offset..])?;
@@ -429,7 +430,7 @@ impl FromBytes for Post {
 
                 // Read the hashes bytes and increment the offset.
                 let hashes = buf[offset..offset + hashes_len].to_vec();
-                offset += hashes_len as usize;
+                offset += hashes_len;
 
                 PostBody::Delete { hashes }
             }
