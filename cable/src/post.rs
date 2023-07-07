@@ -1144,4 +1144,33 @@ mod test {
 
         Ok(())
     }
+
+    #[test]
+    fn get_timestamp_from_leave_post() -> Result<(), Error> {
+        /* HEADER FIELD VALUES */
+
+        let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
+        let signature = <[u8; 64]>::from_hex("abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805")?;
+        let links = <Vec<u8>>::from_hex(POST_HASH)?;
+        let post_type = 5;
+        let timestamp = 80;
+
+        let header = PostHeader::new(public_key, signature, links, post_type, timestamp);
+
+        /* BODY FIELD VALUES */
+
+        let body = PostBody::Leave {
+            channel: "default".to_string().into_bytes(),
+        };
+
+        let post = Post { header, body };
+
+        if let Some(retrieved_timestamp) = post.get_timestamp() {
+            assert_eq!(retrieved_timestamp, timestamp)
+        } else {
+            panic!("Failed to retrieve timestamp from leave post");
+        }
+
+        Ok(())
+    }
 }
