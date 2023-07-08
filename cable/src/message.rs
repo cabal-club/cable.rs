@@ -8,7 +8,13 @@ use desert::{varint, CountBytes, FromBytes, ToBytes};
 //! Includes type definitions for all request and response message types,
 //! as well as message header and body types. Helper methods are included.
 
-use crate::{post::EncodedPost, Channel, CircuitId, EncodedChannel, Hash, ReqId};
+use desert::{varint, CountBytes, FromBytes, ToBytes};
+
+use crate::{
+    error::{CableErrorKind, Error},
+    post::EncodedPost,
+    Channel, CircuitId, EncodedChannel, Hash, ReqId,
+};
 
 #[derive(Clone, Debug)]
 pub struct Message {
@@ -67,7 +73,12 @@ pub enum RequestBody {
     /// Message type (`msg_type`) is `2`.
     Post {
         /// Hashes being requested (concatenated together).
-        hashes: Vec<Hash>,
+        // NOTE: I would prefer to represent this field as `Vec<Hash>`.
+        // That results in a `Vec<[u8; 32]>`, which needs to be flattened when
+        // copying to a buffer. `.flatten()` exists for this purpose but is
+        // currently only available on nightly (unstable).
+        // Using a `Vec<u8>` for now. See if there is another way.
+        hashes: Vec<u8>,
     },
     /// Conclude a given request identified by `req_id` and stop receiving responses for that request.
     ///
@@ -142,7 +153,7 @@ pub enum ResponseBody {
     /// Message type (`msg_type`) is `0`.
     Hash {
         /// Hashes being sent in response (concatenated together).
-        hashes: Vec<Hash>,
+        hashes: Vec<u8>,
     },
     /// Respond with a list of posts in response to a Post Request.
     ///
@@ -160,151 +171,79 @@ pub enum ResponseBody {
     },
 }
 
-/*
 impl CountBytes for Message {
+    /// Calculate the total number of bytes comprising the encoded message.
     fn count_bytes(&self) -> usize {
+        let message_type = self.message_type();
+
         // Count the message header bytes.
+        //
+        // Encoded message type + circuit ID + request ID.
+        let header_size = varint::length(message_type) + 4 + 4;
 
-        let size = match self {
-            Self::HashResponse { hashes, .. } => {
-                varint::length(0) + 4 + varint::length(hashes.len() as u64) + hashes.len() * 32
-            }
-            Self::DataResponse { data, .. } => {
-                varint::length(1)
-                    + 4
-                    + data
-                        .iter()
-                        .fold(0, |sum, d| sum + varint::length(d.len() as u64) + d.len())
-                    + varint::length(0)
-            }
-            Self::HashRequest { ttl, hashes, .. } => {
-                varint::length(2)
-                    + 4
-                    + varint::length(*ttl as u64)
-                    + varint::length(hashes.len() as u64)
-                    + hashes.len() * 32
-            }
-            Self::CancelRequest { .. } => varint::length(3) + 4,
-            Self::ChannelTimeRangeRequest {
-                ttl,
-                channel,
-                time_start,
-                time_end,
-                limit,
-                ..
-            } => {
-                varint::length(4)
-                    + 4
-                    + varint::length(*ttl as u64)
-                    + varint::length(channel.len() as u64)
-                    + channel.len()
-                    + varint::length(*time_start)
-                    + varint::length(*time_end)
-                    + varint::length(*limit as u64)
-            }
-            Self::ChannelStateRequest {
-                ttl,
-                channel,
-                limit,
-                updates,
-                ..
-            } => {
-                varint::length(5)
-                    + 4
-                    + varint::length(*ttl as u64)
-                    + varint::length(channel.len() as u64)
-                    + channel.len()
-                    + varint::length(*limit as u64)
-                    + varint::length(*updates as u64)
-            }
-            Self::ChannelListRequest { ttl, limit, .. } => {
-                varint::length(6) + 4 + varint::length(*ttl as u64) + varint::length(*limit as u64)
-            }
-            Self::Unrecognized { .. } => 0,
+        // Count the message body bytes.
+        let body_size = match &self.body {
+            MessageBody::Request { body, .. } => match body {
+                RequestBody::Post { hashes } => {
+                    varint::length((hashes.len() / 32) as u64) + hashes.len()
+                }
+                RequestBody::Cancel { .. } => 4,
+                RequestBody::ChannelTimeRange {
+                    channel,
+                    time_start,
+                    time_end,
+                    limit,
+                } => {
+                    varint::length(channel.len() as u64)
+                        + channel.len()
+                        + varint::length(*time_start)
+                        + varint::length(*time_end)
+                        + varint::length(*limit)
+                }
+                RequestBody::ChannelState { channel, future } => {
+                    varint::length(channel.len() as u64)
+                        + channel.len()
+                        + varint::length(*future as u64)
+                }
+                RequestBody::ChannelList { offset, limit } => {
+                    varint::length(*offset) + varint::length(*limit)
+                }
+            },
+            MessageBody::Response { body } => match body {
+                ResponseBody::Hash { hashes } => {
+                    varint::length((hashes.len() / 32) as u64) + hashes.len()
+                }
+                ResponseBody::Post { posts } => {
+                    posts.iter().fold(0, |sum, post| {
+                        sum + varint::length(post.len() as u64) + post.len()
+                    }) + varint::length(0)
+                }
+                ResponseBody::ChannelList { channels } => {
+                    channels.iter().fold(0, |sum, channel| {
+                        sum + varint::length(channel.len() as u64) + channel.len()
+                    }) + varint::length(0)
+                }
+            },
         };
-        varint::length(size as u64) + size
+
+        let message_size = header_size + body_size;
+
+        varint::length(message_size as u64) + message_size
     }
+
+    /// Calculate the total number of bytes comprising the buffer.
     fn count_from_bytes(buf: &[u8]) -> Result<usize, Error> {
         if buf.is_empty() {
-            return E::MessageEmpty {}.raise();
+            return CableErrorKind::MessageEmpty {}.raise();
         }
-        let (s, msg_len) = varint::decode(buf)?;
-        Ok(s + (msg_len as usize))
+
+        let (sum, msg_len) = varint::decode(buf)?;
+
+        Ok(sum + (msg_len as usize))
     }
 }
-*/
 
 /*
-impl CountBytes for Message {
-    fn count_bytes(&self) -> usize {
-        let size = match self {
-            Self::HashResponse { hashes, .. } => {
-                varint::length(0) + 4 + varint::length(hashes.len() as u64) + hashes.len() * 32
-            }
-            Self::DataResponse { data, .. } => {
-                varint::length(1)
-                    + 4
-                    + data
-                        .iter()
-                        .fold(0, |sum, d| sum + varint::length(d.len() as u64) + d.len())
-                    + varint::length(0)
-            }
-            Self::HashRequest { ttl, hashes, .. } => {
-                varint::length(2)
-                    + 4
-                    + varint::length(*ttl as u64)
-                    + varint::length(hashes.len() as u64)
-                    + hashes.len() * 32
-            }
-            Self::CancelRequest { .. } => varint::length(3) + 4,
-            Self::ChannelTimeRangeRequest {
-                ttl,
-                channel,
-                time_start,
-                time_end,
-                limit,
-                ..
-            } => {
-                varint::length(4)
-                    + 4
-                    + varint::length(*ttl as u64)
-                    + varint::length(channel.len() as u64)
-                    + channel.len()
-                    + varint::length(*time_start)
-                    + varint::length(*time_end)
-                    + varint::length(*limit as u64)
-            }
-            Self::ChannelStateRequest {
-                ttl,
-                channel,
-                limit,
-                updates,
-                ..
-            } => {
-                varint::length(5)
-                    + 4
-                    + varint::length(*ttl as u64)
-                    + varint::length(channel.len() as u64)
-                    + channel.len()
-                    + varint::length(*limit as u64)
-                    + varint::length(*updates as u64)
-            }
-            Self::ChannelListRequest { ttl, limit, .. } => {
-                varint::length(6) + 4 + varint::length(*ttl as u64) + varint::length(*limit as u64)
-            }
-            Self::Unrecognized { .. } => 0,
-        };
-        varint::length(size as u64) + size
-    }
-    fn count_from_bytes(buf: &[u8]) -> Result<usize, Error> {
-        if buf.is_empty() {
-            return E::MessageEmpty {}.raise();
-        }
-        let (s, msg_len) = varint::decode(buf)?;
-        Ok(s + (msg_len as usize))
-    }
-}
-
 impl ToBytes for Message {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         let mut buf = vec![0; self.count_bytes()];
