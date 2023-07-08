@@ -547,16 +547,12 @@ impl CountBytes for Post {
                 varint::length((hashes.len() / 32) as u64) + hashes.len()
             }
             PostBody::Info { info } => {
-                let mut info_len = 0;
-
-                for UserInfo { key, val } in info {
-                    info_len += varint::length(key.len() as u64)
-                        + key.len()
-                        + varint::length(val.len() as u64)
-                        + val.len();
-                }
-
-                info_len
+                info.iter().fold(0, |sum, info| {
+                    sum + varint::length(info.key.len() as u64)
+                        + info.key.len()
+                        + varint::length(info.val.len() as u64)
+                        + info.val.len()
+                }) + varint::length(0)
             }
             PostBody::Topic { channel, topic } => {
                 varint::length(channel.len() as u64)
@@ -572,8 +568,14 @@ impl CountBytes for Post {
         header_size + body_size
     }
 
-    fn count_from_bytes(_buf: &[u8]) -> Result<usize, Error> {
-        unimplemented![]
+    fn count_from_bytes(buf: &[u8]) -> Result<usize, Error> {
+        if buf.is_empty() {
+            return CableErrorKind::MessageEmpty {}.raise();
+        }
+
+        let (sum, post_len) = varint::decode(buf)?;
+
+        Ok(sum + (post_len as usize))
     }
 }
 
