@@ -92,13 +92,7 @@ pub enum PostBody {
     /// from their local storage, and not store the referenced posts in the future.
     Delete {
         /// Concatenated hashes of posts to be deleted.
-        // NOTE: I would prefer to represent this field as `Vec<Hash>`.
-        // That results in a `Vec<[u8; 32]>`, which needs to be flattened when
-        // copying to a buffer. `.flatten()` exists for this purpose but is
-        // currently only available on nightly (unstable).
-        // Using a `Vec<u8>` for now. See if there is another way.
-        //hashes: Vec<Hash>,
-        hashes: Vec<u8>,
+        hashes: Vec<Hash>,
     },
     /// Set public information about oneself.
     Info {
@@ -289,7 +283,6 @@ impl ToBytes for Post {
         match &self.body {
             PostBody::Text { channel, text } => {
                 offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
-                //buf[offset..offset + channel.len()].copy_from_slice(&channel.into_bytes());
                 buf[offset..offset + channel.len()].copy_from_slice(channel.as_bytes());
                 offset += channel.len();
 
@@ -298,9 +291,18 @@ impl ToBytes for Post {
                 offset += text.len();
             }
             PostBody::Delete { hashes } => {
-                offset += varint::encode((hashes.len() / 32) as u64, &mut buf[offset..])?;
-                buf[offset..offset + hashes.len()].copy_from_slice(hashes);
-                offset += hashes.len();
+                offset += varint::encode(hashes.len() as u64, &mut buf[offset..])?;
+                for hash in hashes.iter() {
+                    if offset + hash.len() > buf.len() {
+                        return CableErrorKind::DstTooSmall {
+                            required: offset + hash.len(),
+                            provided: buf.len(),
+                        }
+                        .raise();
+                    }
+                    buf[offset..offset + hash.len()].copy_from_slice(hash);
+                    offset += hash.len();
+                }
             }
             PostBody::Info { info } => {
                 for UserInfo { key, val } in info {
@@ -434,12 +436,21 @@ impl FromBytes for Post {
                 let (s, num_hashes) = varint::decode(&buf[offset..])?;
                 offset += s;
 
-                // Calculate the number of hashes bytes.
-                let hashes_len = (num_hashes * 32) as usize;
+                let mut hashes = Vec::with_capacity(num_hashes as usize);
 
-                // Read the hashes bytes and increment the offset.
-                let hashes = buf[offset..offset + hashes_len].to_vec();
-                offset += hashes_len;
+                // Iterate over the hashes, reading the bytes from the buffer
+                // and incrementing the offset for each one.
+                for _ in 0..num_hashes {
+                    if offset + 32 > buf.len() {
+                        return CableErrorKind::MessageHashResponseEnd {}.raise();
+                    }
+
+                    let mut hash = [0; 32];
+                    hash.copy_from_slice(&buf[offset..offset + 32]);
+                    offset += 32;
+
+                    hashes.push(hash);
+                }
 
                 PostBody::Delete { hashes }
             }
@@ -557,9 +568,7 @@ impl CountBytes for Post {
                     + varint::length(text.len() as u64)
                     + text.len()
             }
-            PostBody::Delete { hashes } => {
-                varint::length((hashes.len() / 32) as u64) + hashes.len()
-            }
+            PostBody::Delete { hashes } => varint::length(hashes.len() as u64) + hashes.len() * 32,
             PostBody::Info { info } => {
                 info.iter().fold(0, |sum, info| {
                     sum + varint::length(info.key.len() as u64)
@@ -595,7 +604,7 @@ impl CountBytes for Post {
 
 #[cfg(test)]
 mod test {
-    use super::{Error, FromBytes, Post, PostBody, PostHeader, ToBytes, UserInfo};
+    use super::{Error, FromBytes, Hash, Post, PostBody, PostHeader, ToBytes, UserInfo};
 
     use hex::FromHex;
 
@@ -773,16 +782,18 @@ mod test {
 
         /* BODY FIELD VALUES */
 
-        // Concatenate the hashes into a single `Vec<u8>`.
-        let mut hashes = <Vec<u8>>::from_hex(
-            "15ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e5",
-        )?;
-        hashes.append(&mut <Vec<u8>>::from_hex(
-            "97fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db68",
-        )?);
-        hashes.append(&mut <Vec<u8>>::from_hex(
-            "9c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa",
-        )?);
+        // Create a vector of hashes.
+        let hashes: Vec<Hash> = vec![
+            <[u8; 32]>::from_hex(
+                "15ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e5",
+            )?,
+            <[u8; 32]>::from_hex(
+                "97fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db68",
+            )?,
+            <[u8; 32]>::from_hex(
+                "9c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa",
+            )?,
+        ];
 
         // Construct a new post body.
         let body = PostBody::Delete { hashes };
@@ -1051,16 +1062,18 @@ mod test {
 
         /* BODY FIELD VALUES */
 
-        // Concatenate the hashes into a single `Vec<u8>`.
-        let mut expected_hashes = <Vec<u8>>::from_hex(
-            "15ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e5",
-        )?;
-        expected_hashes.append(&mut <Vec<u8>>::from_hex(
-            "97fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db68",
-        )?);
-        expected_hashes.append(&mut <Vec<u8>>::from_hex(
-            "9c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa",
-        )?);
+        // Create a vector of hashes.
+        let expected_hashes: Vec<Hash> = vec![
+            <[u8; 32]>::from_hex(
+                "15ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e5",
+            )?,
+            <[u8; 32]>::from_hex(
+                "97fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db68",
+            )?,
+            <[u8; 32]>::from_hex(
+                "9c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa",
+            )?,
+        ];
 
         // Ensure the post body fields are correct.
         if let PostBody::Delete { hashes } = post.body {
