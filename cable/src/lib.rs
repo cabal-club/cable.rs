@@ -11,14 +11,8 @@ pub type Text = String;
 // TODO: Add a validation function to check length.
 pub type Topic = String;
 
-#[derive(Clone, Debug)]
-/// The length and data of an encoded channel name.
-pub struct EncodedChannel {
-    /// The length of the channel name in bytes.
-    pub channel_len: Vec<u8>, // varint
-    /// The channel name data.
-    pub channel: Vec<u8>,
-}
+/// The data of an encoded channel name.
+pub type EncodedChannel = Vec<u8>;
 
 /*
 #![feature(backtrace, async_closure, drain_filter)]

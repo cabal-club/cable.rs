@@ -32,14 +32,8 @@ impl UserInfo {
     }
 }
 
-#[derive(Clone, Debug)]
-/// The length and data of an encoded post.
-pub struct EncodedPost {
-    /// The length of the post in bytes.
-    pub post_len: u64,
-    /// The post data.
-    pub post_data: Vec<u8>,
-}
+/// The data of an encoded post.
+pub type EncodedPost = Vec<u8>;
 
 #[derive(Clone, Debug)]
 pub struct Post {
@@ -55,13 +49,7 @@ pub struct PostHeader {
     /// Signature of the fields that follow.
     pub signature: [u8; 64],
     /// Hashes of the latest posts in this channel/context.
-    // NOTE: I would prefer to represent this field as `Vec<Hash>`.
-    // That results in a `Vec<[u8; 32]>`, which needs to be flattened when
-    // copying to a buffer. `.flatten()` exists for this purpose but is
-    // currently only available on nightly (unstable).
-    // Using a `Vec<u8>` for now. See if there is another way.
-    //pub links: Vec<Hash>,
-    pub links: Vec<u8>,
+    pub links: Vec<Hash>,
     /// Post type.
     pub post_type: u64,
     /// Time at which the post was created (in milliseconds since the UNIX Epoch).
@@ -73,7 +61,7 @@ impl PostHeader {
     pub fn new(
         public_key: [u8; 32],
         signature: [u8; 64],
-        links: Vec<u8>,
+        links: Vec<Hash>,
         post_type: u64,
         timestamp: u64,
     ) -> Self {
@@ -104,13 +92,7 @@ pub enum PostBody {
     /// from their local storage, and not store the referenced posts in the future.
     Delete {
         /// Concatenated hashes of posts to be deleted.
-        // NOTE: I would prefer to represent this field as `Vec<Hash>`.
-        // That results in a `Vec<[u8; 32]>`, which needs to be flattened when
-        // copying to a buffer. `.flatten()` exists for this purpose but is
-        // currently only available on nightly (unstable).
-        // Using a `Vec<u8>` for now. See if there is another way.
-        //hashes: Vec<Hash>,
-        hashes: Vec<u8>,
+        hashes: Vec<Hash>,
     },
     /// Set public information about oneself.
     Info {
@@ -256,9 +238,9 @@ impl ToBytes for Post {
         // Validate the length of the public key, signature and links fields.
         assert_eq![self.header.public_key.len(), 32];
         assert_eq![self.header.signature.len(), 64];
-        // The links field should be an exact multiple of 32 (32 bytes per
-        // link).
-        assert_eq![self.header.links.len() % 32, 0];
+        for link in &self.header.links {
+            assert_eq![link.len(), 32]
+        }
 
         /* POST HEADER BYTES */
 
@@ -272,11 +254,21 @@ impl ToBytes for Post {
 
         // Encode num_links as a varint, write the resulting bytes to the
         // buffer and increment the offset.
-        offset += varint::encode((self.header.links.len() / 32) as u64, &mut buf[offset..])?;
+        offset += varint::encode(self.header.links.len() as u64, &mut buf[offset..])?;
 
         // Write the links bytes to the buffer and increment the offset.
-        buf[offset..offset + self.header.links.len()].copy_from_slice(&self.header.links);
-        offset += self.header.links.len();
+        // Each `link` is a hash.
+        for link in self.header.links.iter() {
+            if offset + link.len() > buf.len() {
+                return CableErrorKind::DstTooSmall {
+                    required: offset + link.len(),
+                    provided: buf.len(),
+                }
+                .raise();
+            }
+            buf[offset..offset + link.len()].copy_from_slice(link);
+            offset += link.len();
+        }
 
         // Encode the post type as a varint, write the resulting bytes to the
         // buffer and increment the offset.
@@ -291,7 +283,6 @@ impl ToBytes for Post {
         match &self.body {
             PostBody::Text { channel, text } => {
                 offset += varint::encode(channel.len() as u64, &mut buf[offset..])?;
-                //buf[offset..offset + channel.len()].copy_from_slice(&channel.into_bytes());
                 buf[offset..offset + channel.len()].copy_from_slice(channel.as_bytes());
                 offset += channel.len();
 
@@ -300,9 +291,18 @@ impl ToBytes for Post {
                 offset += text.len();
             }
             PostBody::Delete { hashes } => {
-                offset += varint::encode((hashes.len() / 32) as u64, &mut buf[offset..])?;
-                buf[offset..offset + hashes.len()].copy_from_slice(hashes);
-                offset += hashes.len();
+                offset += varint::encode(hashes.len() as u64, &mut buf[offset..])?;
+                for hash in hashes.iter() {
+                    if offset + hash.len() > buf.len() {
+                        return CableErrorKind::DstTooSmall {
+                            required: offset + hash.len(),
+                            provided: buf.len(),
+                        }
+                        .raise();
+                    }
+                    buf[offset..offset + hash.len()].copy_from_slice(hash);
+                    offset += hash.len();
+                }
             }
             PostBody::Info { info } => {
                 for UserInfo { key, val } in info {
@@ -368,15 +368,25 @@ impl FromBytes for Post {
 
         // Read the number of links byte from the buffer and increment the offset.
         // This value encodes the number of links to follow.
+        // TODO: Consider renaming `num_links` to `hash_count`.
         let (s, num_links) = varint::decode(&buf[offset..])?;
         offset += s;
 
-        // Calculate the number of links bytes.
-        let links_len = (num_links * 32) as usize;
+        let mut links = Vec::with_capacity(num_links as usize);
 
-        // Read the links bytes from the buffer and increment the offset.
-        let links = buf[offset..offset + links_len].to_vec();
-        offset += links_len;
+        // Iterate over the links (hashes), reading the bytes from the buffer
+        // and incrementing the offset for each one.
+        for _ in 0..num_links {
+            if offset + 32 > buf.len() {
+                return CableErrorKind::MessageHashResponseEnd {}.raise();
+            }
+
+            let mut link = [0; 32];
+            link.copy_from_slice(&buf[offset..offset + 32]);
+            offset += 32;
+
+            links.push(link);
+        }
 
         // Read the post-type byte from the buffer and increment the offset.
         let (s, post_type) = varint::decode(&buf[offset..])?;
@@ -426,12 +436,21 @@ impl FromBytes for Post {
                 let (s, num_hashes) = varint::decode(&buf[offset..])?;
                 offset += s;
 
-                // Calculate the number of hashes bytes.
-                let hashes_len = (num_hashes * 32) as usize;
+                let mut hashes = Vec::with_capacity(num_hashes as usize);
 
-                // Read the hashes bytes and increment the offset.
-                let hashes = buf[offset..offset + hashes_len].to_vec();
-                offset += hashes_len;
+                // Iterate over the hashes, reading the bytes from the buffer
+                // and incrementing the offset for each one.
+                for _ in 0..num_hashes {
+                    if offset + 32 > buf.len() {
+                        return CableErrorKind::MessageHashResponseEnd {}.raise();
+                    }
+
+                    let mut hash = [0; 32];
+                    hash.copy_from_slice(&buf[offset..offset + 32]);
+                    offset += 32;
+
+                    hashes.push(hash);
+                }
 
                 PostBody::Delete { hashes }
             }
@@ -529,14 +548,15 @@ impl FromBytes for Post {
 }
 
 impl CountBytes for Post {
+    /// Calculate the total number of bytes comprising the encoded post.
     fn count_bytes(&self) -> usize {
         let post_type = self.post_type();
 
         // Count the post header bytes.
         let header_size = 32 // Public key.
             + 64 // Signature.
-            + varint::length((self.header.links.len() / 32) as u64) // Number of links.
-            + self.header.links.len() // Links.
+            + varint::length(self.header.links.len() as u64) // Number of links.
+            + self.header.links.len() * 32 // Links.
             + varint::length(post_type) // Post type.
             + varint::length(self.header.timestamp); // Timestamp.
 
@@ -548,20 +568,14 @@ impl CountBytes for Post {
                     + varint::length(text.len() as u64)
                     + text.len()
             }
-            PostBody::Delete { hashes } => {
-                varint::length((hashes.len() / 32) as u64) + hashes.len()
-            }
+            PostBody::Delete { hashes } => varint::length(hashes.len() as u64) + hashes.len() * 32,
             PostBody::Info { info } => {
-                let mut info_len = 0;
-
-                for UserInfo { key, val } in info {
-                    info_len += varint::length(key.len() as u64)
-                        + key.len()
-                        + varint::length(val.len() as u64)
-                        + val.len();
-                }
-
-                info_len
+                info.iter().fold(0, |sum, info| {
+                    sum + varint::length(info.key.len() as u64)
+                        + info.key.len()
+                        + varint::length(info.val.len() as u64)
+                        + info.val.len()
+                }) + varint::length(0)
             }
             PostBody::Topic { channel, topic } => {
                 varint::length(channel.len() as u64)
@@ -577,14 +591,20 @@ impl CountBytes for Post {
         header_size + body_size
     }
 
-    fn count_from_bytes(_buf: &[u8]) -> Result<usize, Error> {
-        unimplemented![]
+    fn count_from_bytes(buf: &[u8]) -> Result<usize, Error> {
+        if buf.is_empty() {
+            return CableErrorKind::MessageEmpty {}.raise();
+        }
+
+        let (sum, post_len) = varint::decode(buf)?;
+
+        Ok(sum + (post_len as usize))
     }
 }
 
 #[cfg(test)]
 mod test {
-    use super::{Error, FromBytes, Post, PostBody, PostHeader, ToBytes, UserInfo};
+    use super::{Error, FromBytes, Hash, Post, PostBody, PostHeader, ToBytes, UserInfo};
 
     use hex::FromHex;
 
@@ -616,7 +636,7 @@ mod test {
 
         let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let signature = <[u8; 64]>::from_hex("64425f10fa34c1e14b6101491772d3c5f15f720a952dd56c27d5ad52f61f695130ce286de73e332612b36242339b61c9e12397f5dcc94c79055c7e1cb1dbfb08")?;
-        let links = <Vec<u8>>::from_hex(POST_HASH)?;
+        let links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
         let post_type = 4;
         let timestamp = 80;
 
@@ -653,7 +673,7 @@ mod test {
 
         let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let signature = <[u8; 64]>::from_hex("abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805")?;
-        let links = <Vec<u8>>::from_hex(POST_HASH)?;
+        let links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
         let post_type = 5;
         let timestamp = 80;
 
@@ -682,7 +702,7 @@ mod test {
 
         let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let signature = <[u8; 64]>::from_hex("6725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05")?;
-        let links = <Vec<u8>>::from_hex(POST_HASH)?;
+        let links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
         let post_type = 0;
         let timestamp = 80;
 
@@ -714,7 +734,7 @@ mod test {
 
         let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let signature = <[u8; 64]>::from_hex("6725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05")?;
-        let links = <Vec<u8>>::from_hex(POST_HASH)?;
+        let links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
         let post_type = 0;
         let timestamp = 80;
 
@@ -753,7 +773,7 @@ mod test {
 
         let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let signature = <[u8; 64]>::from_hex("affe77e3b3156cda7feea042269bb7e93f5031662c70610d37baa69132b4150c18d67cb2ac24fb0f9be0a6516e53ba2f3bbc5bd8e7a1bff64d9c78ce0c2e4205")?;
-        let links = <Vec<u8>>::from_hex(POST_HASH)?;
+        let links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
         let post_type = 1;
         let timestamp = 80;
 
@@ -762,16 +782,18 @@ mod test {
 
         /* BODY FIELD VALUES */
 
-        // Concatenate the hashes into a single `Vec<u8>`.
-        let mut hashes = <Vec<u8>>::from_hex(
-            "15ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e5",
-        )?;
-        hashes.append(&mut <Vec<u8>>::from_hex(
-            "97fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db68",
-        )?);
-        hashes.append(&mut <Vec<u8>>::from_hex(
-            "9c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa",
-        )?);
+        // Create a vector of hashes.
+        let hashes: Vec<Hash> = vec![
+            <[u8; 32]>::from_hex(
+                "15ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e5",
+            )?,
+            <[u8; 32]>::from_hex(
+                "97fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db68",
+            )?,
+            <[u8; 32]>::from_hex(
+                "9c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa",
+            )?,
+        ];
 
         // Construct a new post body.
         let body = PostBody::Delete { hashes };
@@ -800,7 +822,7 @@ mod test {
 
         let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let signature = <[u8; 64]>::from_hex("f70273779147a3b756407d5660ed2e8e2975abc5ab224fb152aa2bfb3dd331740a66e0718cd580bc94978c1c3cd4524ad8cb2f4cca80df481010c3ef834ac700")?;
-        let links = <Vec<u8>>::from_hex(POST_HASH)?;
+        let links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
         let post_type = 2;
         let timestamp = 80;
 
@@ -842,7 +864,7 @@ mod test {
 
         let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let signature = <[u8; 64]>::from_hex("bf7578e781caee4ca708281645b291a2100c4f2138f0e0ac98bc2b4a414b4ba8dca08285751114b05f131421a1745b648c43b17b05392593237dfacc8dff5208")?;
-        let links = <Vec<u8>>::from_hex(POST_HASH)?;
+        let links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
         let post_type = 3;
         let timestamp = 80;
 
@@ -884,7 +906,7 @@ mod test {
 
         let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let signature = <[u8; 64]>::from_hex("64425f10fa34c1e14b6101491772d3c5f15f720a952dd56c27d5ad52f61f695130ce286de73e332612b36242339b61c9e12397f5dcc94c79055c7e1cb1dbfb08")?;
-        let links = <Vec<u8>>::from_hex(POST_HASH)?;
+        let links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
         let post_type = 4;
         let timestamp = 80;
 
@@ -924,7 +946,7 @@ mod test {
 
         let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let signature = <[u8; 64]>::from_hex("abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805")?;
-        let links = <Vec<u8>>::from_hex(POST_HASH)?;
+        let links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
         let post_type = 5;
         let timestamp = 80;
 
@@ -972,7 +994,7 @@ mod test {
 
         let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let expected_signature = <[u8; 64]>::from_hex("6725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05")?;
-        let expected_links = <Vec<u8>>::from_hex(POST_HASH)?;
+        let expected_links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
         let expected_post_type = 0;
         let expected_timestamp = 80;
 
@@ -1019,7 +1041,7 @@ mod test {
 
         let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let expected_signature = <[u8; 64]>::from_hex("affe77e3b3156cda7feea042269bb7e93f5031662c70610d37baa69132b4150c18d67cb2ac24fb0f9be0a6516e53ba2f3bbc5bd8e7a1bff64d9c78ce0c2e4205")?;
-        let expected_links = <Vec<u8>>::from_hex(POST_HASH)?;
+        let expected_links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
         let expected_post_type = 1;
         let expected_timestamp = 80;
 
@@ -1040,16 +1062,18 @@ mod test {
 
         /* BODY FIELD VALUES */
 
-        // Concatenate the hashes into a single `Vec<u8>`.
-        let mut expected_hashes = <Vec<u8>>::from_hex(
-            "15ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e5",
-        )?;
-        expected_hashes.append(&mut <Vec<u8>>::from_hex(
-            "97fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db68",
-        )?);
-        expected_hashes.append(&mut <Vec<u8>>::from_hex(
-            "9c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa",
-        )?);
+        // Create a vector of hashes.
+        let expected_hashes: Vec<Hash> = vec![
+            <[u8; 32]>::from_hex(
+                "15ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e5",
+            )?,
+            <[u8; 32]>::from_hex(
+                "97fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db68",
+            )?,
+            <[u8; 32]>::from_hex(
+                "9c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa",
+            )?,
+        ];
 
         // Ensure the post body fields are correct.
         if let PostBody::Delete { hashes } = post.body {
@@ -1073,7 +1097,7 @@ mod test {
 
         let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let expected_signature = <[u8; 64]>::from_hex("f70273779147a3b756407d5660ed2e8e2975abc5ab224fb152aa2bfb3dd331740a66e0718cd580bc94978c1c3cd4524ad8cb2f4cca80df481010c3ef834ac700")?;
-        let expected_links = <Vec<u8>>::from_hex(POST_HASH)?;
+        let expected_links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
         let expected_post_type = 2;
         let expected_timestamp = 80;
 
@@ -1120,7 +1144,7 @@ mod test {
 
         let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let expected_signature = <[u8; 64]>::from_hex("bf7578e781caee4ca708281645b291a2100c4f2138f0e0ac98bc2b4a414b4ba8dca08285751114b05f131421a1745b648c43b17b05392593237dfacc8dff5208")?;
-        let expected_links = <Vec<u8>>::from_hex(POST_HASH)?;
+        let expected_links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
         let expected_post_type = 3;
         let expected_timestamp = 80;
 
@@ -1168,7 +1192,7 @@ mod test {
 
         let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let expected_signature = <[u8; 64]>::from_hex("64425f10fa34c1e14b6101491772d3c5f15f720a952dd56c27d5ad52f61f695130ce286de73e332612b36242339b61c9e12397f5dcc94c79055c7e1cb1dbfb08")?;
-        let expected_links = <Vec<u8>>::from_hex(POST_HASH)?;
+        let expected_links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
         let expected_post_type = 4;
         let expected_timestamp = 80;
 
@@ -1213,7 +1237,7 @@ mod test {
 
         let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let expected_signature = <[u8; 64]>::from_hex("abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805")?;
-        let expected_links = <Vec<u8>>::from_hex(POST_HASH)?;
+        let expected_links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
         let expected_post_type = 5;
         let expected_timestamp = 80;
 

@@ -8,7 +8,13 @@ use desert::{varint, CountBytes, FromBytes, ToBytes};
 //! Includes type definitions for all request and response message types,
 //! as well as message header and body types. Helper methods are included.
 
-use crate::{post::EncodedPost, Channel, CircuitId, EncodedChannel, Hash, ReqId};
+use desert::{varint, CountBytes, FromBytes, ToBytes};
+
+use crate::{
+    error::{CableErrorKind, Error},
+    post::EncodedPost,
+    Channel, CircuitId, EncodedChannel, Hash, ReqId,
+};
 
 #[derive(Clone, Debug)]
 pub struct Message {
@@ -16,13 +22,31 @@ pub struct Message {
     pub body: MessageBody,
 }
 
+impl Message {
+    /// Return the numeric type identifier for the message.
+    pub fn message_type(&self) -> u64 {
+        match &self.body {
+            MessageBody::Request { body, .. } => match body {
+                RequestBody::Post { .. } => 2,
+                RequestBody::Cancel { .. } => 3,
+                RequestBody::ChannelTimeRange { .. } => 4,
+                RequestBody::ChannelState { .. } => 5,
+                RequestBody::ChannelList { .. } => 6,
+            },
+            MessageBody::Response { body } => match body {
+                ResponseBody::Hash { .. } => 0,
+                ResponseBody::Post { .. } => 1,
+                ResponseBody::ChannelList { .. } => 7,
+            },
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 /// The header of a request or response message.
 pub struct MessageHeader {
-    /// Number of bytes in the rest of the message, not including the `msg_len` field.
-    pub msg_len: Vec<u8>, // varint
     /// Type identifier for the message (controls which fields follow the header).
-    pub msg_type: Vec<u8>, // varint
+    pub msg_type: u64, // varint
     /// ID of a circuit for an established path; `[0,0,0,0]` for no circuit (current default).
     pub circuit_id: CircuitId,
     /// Unique ID of this request (randomly-assigned).
@@ -34,7 +58,7 @@ pub struct MessageHeader {
 pub enum MessageBody {
     Request {
         /// Number of network hops remaining (must be between 0 and 16).
-        ttl: Vec<u8>, // varint
+        ttl: u8, // varint
         body: RequestBody,
     },
     Response {
@@ -48,8 +72,6 @@ pub enum RequestBody {
     ///
     /// Message type (`msg_type`) is `2`.
     Post {
-        /// Number of hashes being requested.
-        hash_count: Vec<u8>, // varint
         /// Hashes being requested (concatenated together).
         hashes: Vec<Hash>,
     },
@@ -65,31 +87,28 @@ pub enum RequestBody {
     ///
     /// Message type (`msg_type`) is `4`.
     ChannelTimeRange {
-        /// Length of the channel's name in bytes.
-        channel_len: Vec<u8>, // varint
         /// Channel name (UTF-8).
         channel: Channel,
         /// Beginning of the time range (in milliseconds since the UNIX Epoch).
         ///
         /// This represents the age of the oldest post the requester is interested in.
-        time_start: Vec<u8>, // varint
+        // TODO: Consider adding a `Time` type.
+        time_start: u64, // varint
         /// End of the time range (in milliseconds since the UNIX Epoch).
         ///
         /// This represents the age of the newest post the requester is interested in.
         ///
         /// A value of `0` is a keep-alive request; the responder should continue
         /// to send chat messages as they learn of them in the future.
-        time_end: Vec<u8>, // varint
+        time_end: u64, // varint
         /// Maximum numbers of hashes to return.
-        limit: Vec<u8>, // varint
+        limit: u64, // varint
     },
     /// Request posts that describe the current state of a channel and it's members,
     /// and optionally subscribe to future state changes.
     ///
     /// Message type (`msg_type`) is `5`.
     ChannelState {
-        /// Length of the channel's name in bytes.
-        channel_len: Vec<u8>, // varint
         /// Channel name (UTF-8).
         channel: Channel,
         /// Whether to include live/future state hashes.
@@ -104,7 +123,7 @@ pub enum RequestBody {
         /// held open indefinitely on both the requester and responder side until
         /// either a Cancel Request is issued by the requester or the responder
         /// elects to end the request by sending a Hash Response with hash_count = 0.
-        future: Vec<u8>, // varint
+        future: bool, // varint
     },
     /// Request a list of known channels from peers.
     ///
@@ -114,12 +133,12 @@ pub enum RequestBody {
     /// Message type (`msg_type`) is `6`.
     ChannelList {
         /// Number of channel names to skip (`0` to skip none).
-        offset: Vec<u8>, // varint
+        offset: u64, // varint
         /// Maximum number of channel names to return.
         ///
         /// If set to `0`, the responder must respond with all known channels
         /// (after skipping the first `offset` entries).
-        limit: Vec<u8>, // varint
+        limit: u64, // varint
     },
 }
 
@@ -129,8 +148,6 @@ pub enum ResponseBody {
     ///
     /// Message type (`msg_type`) is `0`.
     Hash {
-        /// Number of hashes in the response.
-        hash_count: Vec<u8>, // varint
         /// Hashes being sent in response (concatenated together).
         hashes: Vec<Hash>,
     },
@@ -150,126 +167,79 @@ pub enum ResponseBody {
     },
 }
 
-/*
-#[derive(Clone, Debug)]
-pub enum Message {
-    HashResponse {
-        req_id: ReqId,
-        //reply_id: ReplyId,
-        hashes: Vec<Hash>,
-    },
-    DataResponse {
-        req_id: ReqId,
-        //reply_id: ReplyId,
-        data: Vec<Payload>,
-    },
-    HashRequest {
-        req_id: ReqId,
-        //reply_id: ReplyId,
-        ttl: usize,
-        hashes: Vec<Hash>,
-    },
-    CancelRequest {
-        req_id: ReqId,
-    },
-    ChannelTimeRangeRequest {
-        req_id: ReqId,
-        //reply_id: ReplyId,
-        ttl: usize,
-        channel: Channel,
-        time_start: u64,
-        time_end: u64,
-        limit: usize,
-    },
-    ChannelStateRequest {
-        req_id: ReqId,
-        //reply_id: ReplyId,
-        ttl: usize,
-        channel: Channel,
-        limit: usize,
-        updates: usize,
-    },
-    ChannelListRequest {
-        req_id: ReqId,
-        //reply_id: ReplyId,
-        ttl: usize,
-        limit: usize,
-    },
-    Unrecognized {
-        msg_type: u64,
-    },
-}
-
 impl CountBytes for Message {
+    /// Calculate the total number of bytes comprising the encoded message.
     fn count_bytes(&self) -> usize {
-        let size = match self {
-            Self::HashResponse { hashes, .. } => {
-                varint::length(0) + 4 + varint::length(hashes.len() as u64) + hashes.len() * 32
-            }
-            Self::DataResponse { data, .. } => {
-                varint::length(1)
-                    + 4
-                    + data
-                        .iter()
-                        .fold(0, |sum, d| sum + varint::length(d.len() as u64) + d.len())
-                    + varint::length(0)
-            }
-            Self::HashRequest { ttl, hashes, .. } => {
-                varint::length(2)
-                    + 4
-                    + varint::length(*ttl as u64)
-                    + varint::length(hashes.len() as u64)
-                    + hashes.len() * 32
-            }
-            Self::CancelRequest { .. } => varint::length(3) + 4,
-            Self::ChannelTimeRangeRequest {
-                ttl,
-                channel,
-                time_start,
-                time_end,
-                limit,
-                ..
-            } => {
-                varint::length(4)
-                    + 4
-                    + varint::length(*ttl as u64)
-                    + varint::length(channel.len() as u64)
-                    + channel.len()
-                    + varint::length(*time_start)
-                    + varint::length(*time_end)
-                    + varint::length(*limit as u64)
-            }
-            Self::ChannelStateRequest {
-                ttl,
-                channel,
-                limit,
-                updates,
-                ..
-            } => {
-                varint::length(5)
-                    + 4
-                    + varint::length(*ttl as u64)
-                    + varint::length(channel.len() as u64)
-                    + channel.len()
-                    + varint::length(*limit as u64)
-                    + varint::length(*updates as u64)
-            }
-            Self::ChannelListRequest { ttl, limit, .. } => {
-                varint::length(6) + 4 + varint::length(*ttl as u64) + varint::length(*limit as u64)
-            }
-            Self::Unrecognized { .. } => 0,
+        let message_type = self.message_type();
+
+        // Count the message header bytes.
+        //
+        // Encoded message type + circuit ID + request ID.
+        let header_size = varint::length(message_type) + 4 + 4;
+
+        // Count the message body bytes.
+        let body_size = match &self.body {
+            MessageBody::Request { body, .. } => match body {
+                RequestBody::Post { hashes } => {
+                    varint::length(hashes.len() as u64) + hashes.len() * 32
+                }
+                RequestBody::Cancel { .. } => 4,
+                RequestBody::ChannelTimeRange {
+                    channel,
+                    time_start,
+                    time_end,
+                    limit,
+                } => {
+                    varint::length(channel.len() as u64)
+                        + channel.len()
+                        + varint::length(*time_start)
+                        + varint::length(*time_end)
+                        + varint::length(*limit)
+                }
+                RequestBody::ChannelState { channel, future } => {
+                    varint::length(channel.len() as u64)
+                        + channel.len()
+                        + varint::length(*future as u64)
+                }
+                RequestBody::ChannelList { offset, limit } => {
+                    varint::length(*offset) + varint::length(*limit)
+                }
+            },
+            MessageBody::Response { body } => match body {
+                ResponseBody::Hash { hashes } => {
+                    varint::length(hashes.len() as u64) + hashes.len() * 32
+                }
+                ResponseBody::Post { posts } => {
+                    posts.iter().fold(0, |sum, post| {
+                        sum + varint::length(post.len() as u64) + post.len()
+                    }) + varint::length(0)
+                }
+                ResponseBody::ChannelList { channels } => {
+                    channels.iter().fold(0, |sum, channel| {
+                        sum + varint::length(channel.len() as u64) + channel.len()
+                    }) + varint::length(0)
+                }
+            },
         };
-        varint::length(size as u64) + size
+
+        let message_size = header_size + body_size;
+
+        varint::length(message_size as u64) + message_size
     }
+
+    /// Calculate the total number of bytes comprising the buffer.
     fn count_from_bytes(buf: &[u8]) -> Result<usize, Error> {
         if buf.is_empty() {
-            return E::MessageEmpty {}.raise();
+            return CableErrorKind::MessageEmpty {}.raise();
         }
-        let (s, msg_len) = varint::decode(buf)?;
-        Ok(s + (msg_len as usize))
+
+        let (sum, msg_len) = varint::decode(buf)?;
+
+        Ok(sum + (msg_len as usize))
     }
 }
 
+/*
 impl ToBytes for Message {
     fn to_bytes(&self) -> Result<Vec<u8>, Error> {
         let mut buf = vec![0; self.count_bytes()];
