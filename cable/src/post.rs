@@ -32,14 +32,8 @@ impl UserInfo {
     }
 }
 
-#[derive(Clone, Debug)]
-/// The length and data of an encoded post.
-pub struct EncodedPost {
-    /// The length of the post in bytes.
-    pub post_len: u64,
-    /// The post data.
-    pub post_data: Vec<u8>,
-}
+/// The data of an encoded post.
+pub type EncodedPost = Vec<u8>;
 
 #[derive(Clone, Debug)]
 pub struct Post {
@@ -529,6 +523,7 @@ impl FromBytes for Post {
 }
 
 impl CountBytes for Post {
+    /// Calculate the total number of bytes comprising the encoded post.
     fn count_bytes(&self) -> usize {
         let post_type = self.post_type();
 
