@@ -73,12 +73,7 @@ pub enum RequestBody {
     /// Message type (`msg_type`) is `2`.
     Post {
         /// Hashes being requested (concatenated together).
-        // NOTE: I would prefer to represent this field as `Vec<Hash>`.
-        // That results in a `Vec<[u8; 32]>`, which needs to be flattened when
-        // copying to a buffer. `.flatten()` exists for this purpose but is
-        // currently only available on nightly (unstable).
-        // Using a `Vec<u8>` for now. See if there is another way.
-        hashes: Vec<u8>,
+        hashes: Vec<Hash>,
     },
     /// Conclude a given request identified by `req_id` and stop receiving responses for that request.
     ///
@@ -97,6 +92,7 @@ pub enum RequestBody {
         /// Beginning of the time range (in milliseconds since the UNIX Epoch).
         ///
         /// This represents the age of the oldest post the requester is interested in.
+        // TODO: Consider adding a `Time` type.
         time_start: u64, // varint
         /// End of the time range (in milliseconds since the UNIX Epoch).
         ///
@@ -153,7 +149,7 @@ pub enum ResponseBody {
     /// Message type (`msg_type`) is `0`.
     Hash {
         /// Hashes being sent in response (concatenated together).
-        hashes: Vec<u8>,
+        hashes: Vec<Hash>,
     },
     /// Respond with a list of posts in response to a Post Request.
     ///
@@ -185,7 +181,7 @@ impl CountBytes for Message {
         let body_size = match &self.body {
             MessageBody::Request { body, .. } => match body {
                 RequestBody::Post { hashes } => {
-                    varint::length((hashes.len() / 32) as u64) + hashes.len()
+                    varint::length(hashes.len() as u64) + hashes.len() * 32
                 }
                 RequestBody::Cancel { .. } => 4,
                 RequestBody::ChannelTimeRange {
@@ -211,7 +207,7 @@ impl CountBytes for Message {
             },
             MessageBody::Response { body } => match body {
                 ResponseBody::Hash { hashes } => {
-                    varint::length((hashes.len() / 32) as u64) + hashes.len()
+                    varint::length(hashes.len() as u64) + hashes.len() * 32
                 }
                 ResponseBody::Post { posts } => {
                     posts.iter().fold(0, |sum, post| {
