@@ -16,11 +16,29 @@ pub struct Message {
     pub body: MessageBody,
 }
 
+impl Message {
+    /// Return the numeric type identifier for the message.
+    pub fn message_type(&self) -> u64 {
+        match &self.body {
+            MessageBody::Request { body, .. } => match body {
+                RequestBody::Post { .. } => 2,
+                RequestBody::Cancel { .. } => 3,
+                RequestBody::ChannelTimeRange { .. } => 4,
+                RequestBody::ChannelState { .. } => 5,
+                RequestBody::ChannelList { .. } => 6,
+            },
+            MessageBody::Response { body } => match body {
+                ResponseBody::Hash { .. } => 0,
+                ResponseBody::Post { .. } => 1,
+                ResponseBody::ChannelList { .. } => 7,
+            },
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 /// The header of a request or response message.
 pub struct MessageHeader {
-    /// Number of bytes in the rest of the message, not including the `msg_len` field.
-    pub msg_len: u64, // varint
     /// Type identifier for the message (controls which fields follow the header).
     pub msg_type: u64, // varint
     /// ID of a circuit for an established path; `[0,0,0,0]` for no circuit (current default).
@@ -143,55 +161,80 @@ pub enum ResponseBody {
 }
 
 /*
-#[derive(Clone, Debug)]
-pub enum Message {
-    HashResponse {
-        req_id: ReqId,
-        //reply_id: ReplyId,
-        hashes: Vec<Hash>,
-    },
-    DataResponse {
-        req_id: ReqId,
-        //reply_id: ReplyId,
-        data: Vec<Payload>,
-    },
-    HashRequest {
-        req_id: ReqId,
-        //reply_id: ReplyId,
-        ttl: usize,
-        hashes: Vec<Hash>,
-    },
-    CancelRequest {
-        req_id: ReqId,
-    },
-    ChannelTimeRangeRequest {
-        req_id: ReqId,
-        //reply_id: ReplyId,
-        ttl: usize,
-        channel: Channel,
-        time_start: u64,
-        time_end: u64,
-        limit: usize,
-    },
-    ChannelStateRequest {
-        req_id: ReqId,
-        //reply_id: ReplyId,
-        ttl: usize,
-        channel: Channel,
-        limit: usize,
-        updates: usize,
-    },
-    ChannelListRequest {
-        req_id: ReqId,
-        //reply_id: ReplyId,
-        ttl: usize,
-        limit: usize,
-    },
-    Unrecognized {
-        msg_type: u64,
-    },
-}
+impl CountBytes for Message {
+    fn count_bytes(&self) -> usize {
+        // Count the message header bytes.
 
+        let size = match self {
+            Self::HashResponse { hashes, .. } => {
+                varint::length(0) + 4 + varint::length(hashes.len() as u64) + hashes.len() * 32
+            }
+            Self::DataResponse { data, .. } => {
+                varint::length(1)
+                    + 4
+                    + data
+                        .iter()
+                        .fold(0, |sum, d| sum + varint::length(d.len() as u64) + d.len())
+                    + varint::length(0)
+            }
+            Self::HashRequest { ttl, hashes, .. } => {
+                varint::length(2)
+                    + 4
+                    + varint::length(*ttl as u64)
+                    + varint::length(hashes.len() as u64)
+                    + hashes.len() * 32
+            }
+            Self::CancelRequest { .. } => varint::length(3) + 4,
+            Self::ChannelTimeRangeRequest {
+                ttl,
+                channel,
+                time_start,
+                time_end,
+                limit,
+                ..
+            } => {
+                varint::length(4)
+                    + 4
+                    + varint::length(*ttl as u64)
+                    + varint::length(channel.len() as u64)
+                    + channel.len()
+                    + varint::length(*time_start)
+                    + varint::length(*time_end)
+                    + varint::length(*limit as u64)
+            }
+            Self::ChannelStateRequest {
+                ttl,
+                channel,
+                limit,
+                updates,
+                ..
+            } => {
+                varint::length(5)
+                    + 4
+                    + varint::length(*ttl as u64)
+                    + varint::length(channel.len() as u64)
+                    + channel.len()
+                    + varint::length(*limit as u64)
+                    + varint::length(*updates as u64)
+            }
+            Self::ChannelListRequest { ttl, limit, .. } => {
+                varint::length(6) + 4 + varint::length(*ttl as u64) + varint::length(*limit as u64)
+            }
+            Self::Unrecognized { .. } => 0,
+        };
+        varint::length(size as u64) + size
+    }
+    fn count_from_bytes(buf: &[u8]) -> Result<usize, Error> {
+        if buf.is_empty() {
+            return E::MessageEmpty {}.raise();
+        }
+        let (s, msg_len) = varint::decode(buf)?;
+        Ok(s + (msg_len as usize))
+    }
+}
+*/
+
+/*
 impl CountBytes for Message {
     fn count_bytes(&self) -> usize {
         let size = match self {
