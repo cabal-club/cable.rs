@@ -582,6 +582,49 @@ mod test {
 
         Ok(())
     }
+
+    #[test]
+    fn channel_list_request_to_bytes() -> Result<(), Error> {
+        /* HEADER FIELD VALUES */
+
+        let msg_len = 12;
+        let msg_type = 6;
+        let req_id = <[u8; 4]>::from_hex("04baaffb")?;
+
+        // Construct a new message header.
+        let header = MessageHeader::new(msg_type, CIRCUIT_ID, req_id);
+
+        /* BODY FIELD VALUES */
+
+        let ttl = 1;
+        let skip = 0;
+        let limit = 20;
+
+        // Construct a new request body.
+        let req_body = RequestBody::ChannelList { skip, limit };
+        // Construct a new message body.
+        let body = MessageBody::Request {
+            body: req_body,
+            ttl,
+        };
+
+        // Construct a new message.
+        let msg = Message::new(header, body);
+        // Convert the message to bytes.
+        let msg_bytes = msg.to_bytes()?;
+
+        // Test vector binary.
+        let expected_bytes = <Vec<u8>>::from_hex("0c060000000004baaffb010014")?;
+
+        // Ensure the number of generated message bytes matches the number of
+        // expected bytes.
+        assert_eq!(msg_bytes.len(), expected_bytes.len());
+
+        // Ensure the generated message bytes match the expected bytes.
+        assert_eq!(msg_bytes, expected_bytes);
+
+        Ok(())
+    }
 }
 
 /*
