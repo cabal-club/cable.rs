@@ -401,7 +401,6 @@ impl ToBytes for Message {
                     offset += varint::encode(0, &mut buf[offset..])?;
                 }
                 ResponseBody::ChannelList { channels } => {
-                    offset += varint::encode(channels.len() as u64, &mut buf[offset..])?;
                     for channel in channels {
                         if offset + channel.len() > buf.len() {
                             return CableErrorKind::DstTooSmall {
@@ -675,22 +674,6 @@ mod test {
         Ok(())
     }
 
-    /*
-        {
-      "name": "post response",
-      "type": "response",
-      "id": 1,
-      "binary": "9701010000000004baaffb8b0125b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b305500764656661756c7400",
-      "obj": {
-        "msgLen": 151,
-        "msgType": 1,
-        "reqid": "04baaffb",
-        "posts": [
-          "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b305500764656661756c74"
-        ]
-      }
-    }
-        */
     #[test]
     fn post_response_to_bytes() -> Result<(), Error> {
         /* HEADER FIELD VALUES */
@@ -719,6 +702,51 @@ mod test {
 
         // Test vector binary.
         let expected_bytes = <Vec<u8>>::from_hex("9701010000000004baaffb8b0125b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b305500764656661756c7400")?;
+
+        // Ensure the number of generated message bytes matches the number of
+        // expected bytes.
+        assert_eq!(msg_bytes.len(), expected_bytes.len());
+
+        // Ensure the generated message bytes match the expected bytes.
+        assert_eq!(msg_bytes, expected_bytes);
+
+        Ok(())
+    }
+
+    #[test]
+    fn channel_list_response_to_bytes() -> Result<(), Error> {
+        /* HEADER FIELD VALUES */
+
+        let msg_len = 35;
+        let msg_type = 7;
+        let req_id = <[u8; 4]>::from_hex("04baaffb")?;
+
+        // Construct a new message header.
+        let header = MessageHeader::new(msg_type, CIRCUIT_ID, req_id);
+
+        /* BODY FIELD VALUES */
+
+        // Create a vector of channels.
+        let channels = vec![
+            "default".to_string(),
+            "dev".to_string(),
+            "introduction".to_string(),
+        ];
+
+        // Construct a new response body.
+        let res_body = ResponseBody::ChannelList { channels };
+        // Construct a new message body.
+        let body = MessageBody::Response { body: res_body };
+
+        // Construct a new message.
+        let msg = Message::new(header, body);
+        // Convert the message to bytes.
+        let msg_bytes = msg.to_bytes()?;
+
+        // Test vector binary.
+        let expected_bytes = <Vec<u8>>::from_hex(
+            "23070000000004baaffb0764656661756c74036465760c696e74726f64756374696f6e00",
+        )?;
 
         // Ensure the number of generated message bytes matches the number of
         // expected bytes.
