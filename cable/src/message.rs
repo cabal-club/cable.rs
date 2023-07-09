@@ -13,7 +13,7 @@ use desert::{varint, CountBytes, FromBytes, ToBytes};
 use crate::{
     error::{CableErrorKind, Error},
     post::EncodedPost,
-    Channel, CircuitId, EncodedChannel, Hash, ReqId,
+    Channel, CircuitId, EncodedChannel, Hash, ReqId, Timestamp,
 };
 
 #[derive(Clone, Debug)]
@@ -53,7 +53,7 @@ impl Message {
 /// The header of a request or response message.
 pub struct MessageHeader {
     /// Type identifier for the message (controls which fields follow the header).
-    pub msg_type: u64, // varint
+    pub msg_type: u64,
     /// ID of a circuit for an established path; `[0,0,0,0]` for no circuit (current default).
     pub circuit_id: CircuitId,
     /// Unique ID of this request (randomly-assigned).
@@ -76,7 +76,7 @@ impl MessageHeader {
 pub enum MessageBody {
     Request {
         /// Number of network hops remaining (must be between 0 and 16).
-        ttl: u8, // varint
+        ttl: u8,
         body: RequestBody,
     },
     Response {
@@ -90,7 +90,7 @@ pub enum RequestBody {
     ///
     /// Message type (`msg_type`) is `2`.
     Post {
-        /// Hashes being requested (concatenated together).
+        /// Hashes of the posts being requested.
         hashes: Vec<Hash>,
     },
     /// Conclude a given request identified by `req_id` and stop receiving responses for that request.
@@ -98,7 +98,7 @@ pub enum RequestBody {
     /// Message type (`msg_type`) is `3`.
     Cancel {
         /// The `req_id` of the request to be cancelled.
-        cancel_id: ReqId, // varint
+        cancel_id: ReqId,
     },
     /// Request chat messages and chat message deletions written to a channel
     /// between a start and end time, optionally subscribing to future chat messages.
@@ -110,17 +110,16 @@ pub enum RequestBody {
         /// Beginning of the time range (in milliseconds since the UNIX Epoch).
         ///
         /// This represents the age of the oldest post the requester is interested in.
-        // TODO: Consider adding a `Timestamp` type.
-        time_start: u64, // varint
+        time_start: Timestamp,
         /// End of the time range (in milliseconds since the UNIX Epoch).
         ///
         /// This represents the age of the newest post the requester is interested in.
         ///
         /// A value of `0` is a keep-alive request; the responder should continue
         /// to send chat messages as they learn of them in the future.
-        time_end: u64, // varint
+        time_end: Timestamp,
         /// Maximum numbers of hashes to return.
-        limit: u64, // varint
+        limit: u64,
     },
     /// Request posts that describe the current state of a channel and it's members,
     /// and optionally subscribe to future state changes.
@@ -141,7 +140,7 @@ pub enum RequestBody {
         /// held open indefinitely on both the requester and responder side until
         /// either a Cancel Request is issued by the requester or the responder
         /// elects to end the request by sending a Hash Response with hash_count = 0.
-        future: u64, // varint
+        future: u64,
     },
     /// Request a list of known channels from peers.
     ///
@@ -155,12 +154,12 @@ pub enum RequestBody {
         // names it `offset`. The change has been made to avoid a naming
         // collision with the `offset` variable used in the `ToBytes` and
         // `FromBytes` implementations for `Message`.
-        skip: u64, // varint
+        skip: u64,
         /// Maximum number of channel names to return.
         ///
         /// If set to `0`, the responder must respond with all known channels
         /// (after skipping the first `offset` entries).
-        limit: u64, // varint
+        limit: u64,
     },
     /// A request message type which is not recognised as part of the cable
     /// specification.
