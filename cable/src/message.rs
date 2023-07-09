@@ -383,7 +383,6 @@ impl ToBytes for Message {
                     }
                 }
                 ResponseBody::Post { posts } => {
-                    offset += varint::encode(posts.len() as u64, &mut buf[offset..])?;
                     for post in posts {
                         if offset + post.len() > buf.len() {
                             return CableErrorKind::DstTooSmall {
@@ -436,7 +435,8 @@ impl ToBytes for Message {
 #[cfg(test)]
 mod test {
     use super::{
-        Error, Hash, Message, MessageBody, MessageHeader, RequestBody, ResponseBody, ToBytes,
+        EncodedPost, Error, Hash, Message, MessageBody, MessageHeader, RequestBody, ResponseBody,
+        ToBytes,
     };
 
     use hex::FromHex;
@@ -615,6 +615,110 @@ mod test {
 
         // Test vector binary.
         let expected_bytes = <Vec<u8>>::from_hex("0c060000000004baaffb010014")?;
+
+        // Ensure the number of generated message bytes matches the number of
+        // expected bytes.
+        assert_eq!(msg_bytes.len(), expected_bytes.len());
+
+        // Ensure the generated message bytes match the expected bytes.
+        assert_eq!(msg_bytes, expected_bytes);
+
+        Ok(())
+    }
+
+    #[test]
+    fn hash_response_to_bytes() -> Result<(), Error> {
+        /* HEADER FIELD VALUES */
+
+        let msg_len = 106;
+        let msg_type = 0;
+        let req_id = <[u8; 4]>::from_hex("04baaffb")?;
+
+        // Construct a new message header.
+        let header = MessageHeader::new(msg_type, CIRCUIT_ID, req_id);
+
+        /* BODY FIELD VALUES */
+
+        // Create a vector of hashes.
+        let hashes: Vec<Hash> = vec![
+            <[u8; 32]>::from_hex(
+                "15ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e5",
+            )?,
+            <[u8; 32]>::from_hex(
+                "97fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db68",
+            )?,
+            <[u8; 32]>::from_hex(
+                "9c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa",
+            )?,
+        ];
+
+        // Construct a new response body.
+        let res_body = ResponseBody::Hash { hashes };
+        // Construct a new message body.
+        let body = MessageBody::Response { body: res_body };
+
+        // Construct a new message.
+        let msg = Message::new(header, body);
+        // Convert the message to bytes.
+        let msg_bytes = msg.to_bytes()?;
+
+        // Test vector binary.
+        let expected_bytes = <Vec<u8>>::from_hex("6a000000000004baaffb0315ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e597fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db689c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa")?;
+
+        // Ensure the number of generated message bytes matches the number of
+        // expected bytes.
+        assert_eq!(msg_bytes.len(), expected_bytes.len());
+
+        // Ensure the generated message bytes match the expected bytes.
+        assert_eq!(msg_bytes, expected_bytes);
+
+        Ok(())
+    }
+
+    /*
+        {
+      "name": "post response",
+      "type": "response",
+      "id": 1,
+      "binary": "9701010000000004baaffb8b0125b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b305500764656661756c7400",
+      "obj": {
+        "msgLen": 151,
+        "msgType": 1,
+        "reqid": "04baaffb",
+        "posts": [
+          "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b305500764656661756c74"
+        ]
+      }
+    }
+        */
+    #[test]
+    fn post_response_to_bytes() -> Result<(), Error> {
+        /* HEADER FIELD VALUES */
+
+        let msg_len = 151;
+        let msg_type = 1;
+        let req_id = <[u8; 4]>::from_hex("04baaffb")?;
+
+        // Construct a new message header.
+        let header = MessageHeader::new(msg_type, CIRCUIT_ID, req_id);
+
+        /* BODY FIELD VALUES */
+
+        // Create a vector of encoded posts.
+        let posts: Vec<EncodedPost> = vec![<Vec<u8>>::from_hex("25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b305500764656661756c74")?];
+
+        // Construct a new response body.
+        let res_body = ResponseBody::Post { posts };
+        // Construct a new message body.
+        let body = MessageBody::Response { body: res_body };
+
+        // Construct a new message.
+        let msg = Message::new(header, body);
+        // Convert the message to bytes.
+        let msg_bytes = msg.to_bytes()?;
+
+        // Test vector binary.
+        let expected_bytes = <Vec<u8>>::from_hex("9701010000000004baaffb8b0125b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b305500764656661756c7400")?;
 
         // Ensure the number of generated message bytes matches the number of
         // expected bytes.
