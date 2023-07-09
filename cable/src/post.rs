@@ -398,7 +398,7 @@ impl FromBytes for Post {
         let (s, timestamp) = varint::decode(&buf[offset..])?;
         offset += s;
 
-        // Read the post header field bytes.
+        // Construct the post header.
         let header = PostHeader {
             public_key,
             signature,
