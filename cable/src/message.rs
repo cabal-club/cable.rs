@@ -140,6 +140,7 @@ pub enum RequestBody {
         /// held open indefinitely on both the requester and responder side until
         /// either a Cancel Request is issued by the requester or the responder
         /// elects to end the request by sending a Hash Response with hash_count = 0.
+        // TODO: Rather use a `bool` here and convert to 0 / 1 where required.
         future: u64,
     },
     /// Request a list of known channels from peers.
@@ -460,8 +461,8 @@ mod test {
 
         /* BODY FIELD VALUES */
 
-        let cancel_id = <[u8; 4]>::from_hex("31b5c9e1")?;
         let ttl = 1;
+        let cancel_id = <[u8; 4]>::from_hex("31b5c9e1")?;
 
         // Construct a new request body.
         let req_body = RequestBody::Cancel { cancel_id };
@@ -478,6 +479,56 @@ mod test {
 
         // Test vector binary.
         let expected_bytes = <Vec<u8>>::from_hex("0e030000000004baaffb0131b5c9e1")?;
+
+        // Ensure the number of generated message bytes matches the number of
+        // expected bytes.
+        assert_eq!(msg_bytes.len(), expected_bytes.len());
+
+        // Ensure the generated message bytes match the expected bytes.
+        assert_eq!(msg_bytes, expected_bytes);
+
+        Ok(())
+    }
+
+    #[test]
+    fn channel_time_range_request_to_bytes() -> Result<(), Error> {
+        /* HEADER FIELD VALUES */
+
+        let msg_len = 21;
+        let msg_type = 4;
+        let req_id = <[u8; 4]>::from_hex("04baaffb")?;
+
+        // Construct a new message header.
+        let header = MessageHeader::new(msg_type, CIRCUIT_ID, req_id);
+
+        /* BODY FIELD VALUES */
+
+        let ttl = 1;
+        let channel = "default".to_string();
+        let time_start = 0;
+        let time_end = 100;
+        let limit = 20;
+
+        // Construct a new request body.
+        let req_body = RequestBody::ChannelTimeRange {
+            channel,
+            time_start,
+            time_end,
+            limit,
+        };
+        // Construct a new message body.
+        let body = MessageBody::Request {
+            body: req_body,
+            ttl,
+        };
+
+        // Construct a new message.
+        let msg = Message::new(header, body);
+        // Convert the message to bytes.
+        let msg_bytes = msg.to_bytes()?;
+
+        // Test vector binary.
+        let expected_bytes = <Vec<u8>>::from_hex("15040000000004baaffb010764656661756c74006414")?;
 
         // Ensure the number of generated message bytes matches the number of
         // expected bytes.
