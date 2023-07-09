@@ -236,6 +236,7 @@ impl ToBytes for Post {
         let mut offset = 0;
 
         // Validate the length of the public key, signature and links fields.
+        // TODO: Rather raise an appropriate CableErrorKind here.
         assert_eq![self.header.public_key.len(), 32];
         assert_eq![self.header.signature.len(), 64];
         for link in &self.header.links {
@@ -292,7 +293,7 @@ impl ToBytes for Post {
             }
             PostBody::Delete { hashes } => {
                 offset += varint::encode(hashes.len() as u64, &mut buf[offset..])?;
-                for hash in hashes.iter() {
+                for hash in hashes {
                     if offset + hash.len() > buf.len() {
                         return CableErrorKind::DstTooSmall {
                             required: offset + hash.len(),
@@ -309,6 +310,7 @@ impl ToBytes for Post {
                     offset += varint::encode(key.len() as u64, &mut buf[offset..])?;
                     buf[offset..offset + key.len()].copy_from_slice(key.as_bytes());
                     offset += key.len();
+
                     offset += varint::encode(val.len() as u64, &mut buf[offset..])?;
                     buf[offset..offset + val.len()].copy_from_slice(val.as_bytes());
                     offset += val.len();
