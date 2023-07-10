@@ -592,7 +592,7 @@ impl FromBytes for Message {
                 // Read the channel bytes and increment the offset.
                 let channel =
                     String::from_utf8(buf[offset..offset + channel_len as usize].to_vec())?;
-                offset += s;
+                offset += channel_len as usize;
 
                 // Read the time start byte and increment the offset.
                 let (s, time_start) = varint::decode(&buf[offset..])?;
@@ -613,7 +613,6 @@ impl FromBytes for Message {
                     time_end,
                     limit,
                 };
-
                 MessageBody::Request {
                     ttl: ttl as u8,
                     body: req_body,
@@ -632,7 +631,7 @@ impl FromBytes for Message {
                 // Read the channel bytes and increment the offset.
                 let channel =
                     String::from_utf8(buf[offset..offset + channel_len as usize].to_vec())?;
-                offset += s;
+                offset += channel_len as usize;
 
                 // Read the future byte and increment the offset.
                 let (s, future) = varint::decode(&buf[offset..])?;
@@ -691,7 +690,14 @@ mod test {
     const REQ_ID: &str = "04baaffb";
     const TTL: u8 = 1;
 
+    const CANCEL_ID: &str = "31b5c9e1";
+
     const POST_REQUEST_HEX_BINARY: &str = "6b020000000004baaffb010315ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e597fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db689c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa";
+    const CANCEL_REQUEST_HEX_BINARY: &str = "0e030000000004baaffb0131b5c9e1";
+    const CHANNEL_TIME_RANGE_REQUEST_HEX_BINARY: &str =
+        "15040000000004baaffb010764656661756c74006414";
+    const CHANNEL_STATE_REQUEST_HEX_BINARY: &str = "13050000000004baaffb010764656661756c7400";
+    const CHANNEL_LIST_REQUEST_HEX_BINARY: &str = "0c060000000004baaffb010014";
 
     /* MESSAGE TO BYTES TESTS */
 
@@ -760,7 +766,7 @@ mod test {
 
         /* BODY FIELD VALUES */
 
-        let cancel_id = <[u8; 4]>::from_hex("31b5c9e1")?;
+        let cancel_id = <[u8; 4]>::from_hex(CANCEL_ID)?;
 
         // Construct a new request body.
         let req_body = RequestBody::Cancel { cancel_id };
@@ -1102,6 +1108,198 @@ mod test {
                 assert_eq!(hashes, expected_hashes);
             } else {
                 panic!("Incorrect message type: expected post request");
+            }
+        } else {
+            panic!("Incorrect message body type: expected request");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn bytes_to_cancel_request() -> Result<(), Error> {
+        // Test vector binary.
+        let msg_bytes = <Vec<u8>>::from_hex(CANCEL_REQUEST_HEX_BINARY)?;
+
+        // Decode the byte slice to `Message`.
+        let (_, msg) = Message::from_bytes(&msg_bytes)?;
+
+        /* HEADER FIELD VALUES */
+
+        let expected_msg_type = 3;
+        let expected_circuit_id = CIRCUIT_ID;
+        let expected_req_id = <[u8; 4]>::from_hex(REQ_ID)?;
+
+        let MessageHeader {
+            msg_type,
+            circuit_id,
+            req_id,
+        } = msg.header;
+
+        // Ensure the message header fields are correct.
+        assert_eq!(msg_type, expected_msg_type);
+        assert_eq!(circuit_id, expected_circuit_id);
+        assert_eq!(req_id, expected_req_id);
+
+        /* BODY FIELD VALUES */
+
+        let expected_cancel_id = <[u8; 4]>::from_hex(CANCEL_ID)?;
+
+        // Ensure the message body fields are correct.
+        if let MessageBody::Request { ttl, body } = msg.body {
+            assert_eq!(ttl, TTL);
+            if let RequestBody::Cancel { cancel_id } = body {
+                assert_eq!(cancel_id, expected_cancel_id);
+            } else {
+                panic!("Incorrect message type: expected cancel request");
+            }
+        } else {
+            panic!("Incorrect message body type: expected request");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn bytes_to_channel_time_range_request() -> Result<(), Error> {
+        // Test vector binary.
+        let msg_bytes = <Vec<u8>>::from_hex(CHANNEL_TIME_RANGE_REQUEST_HEX_BINARY)?;
+
+        // Decode the byte slice to `Message`.
+        let (_, msg) = Message::from_bytes(&msg_bytes)?;
+
+        /* HEADER FIELD VALUES */
+
+        let expected_msg_type = 4;
+        let expected_circuit_id = CIRCUIT_ID;
+        let expected_req_id = <[u8; 4]>::from_hex(REQ_ID)?;
+
+        let MessageHeader {
+            msg_type,
+            circuit_id,
+            req_id,
+        } = msg.header;
+
+        // Ensure the message header fields are correct.
+        assert_eq!(msg_type, expected_msg_type);
+        assert_eq!(circuit_id, expected_circuit_id);
+        assert_eq!(req_id, expected_req_id);
+
+        /* BODY FIELD VALUES */
+
+        let expected_channel = "default".to_string();
+        let expected_time_start = 0;
+        let expected_time_end = 100;
+        let expected_limit = 20;
+
+        // Ensure the message body fields are correct.
+        if let MessageBody::Request { ttl, body } = msg.body {
+            assert_eq!(ttl, TTL);
+            if let RequestBody::ChannelTimeRange {
+                channel,
+                time_start,
+                time_end,
+                limit,
+            } = body
+            {
+                assert_eq!(channel, expected_channel);
+                assert_eq!(time_start, expected_time_start);
+                assert_eq!(time_end, expected_time_end);
+                assert_eq!(limit, expected_limit);
+            } else {
+                panic!("Incorrect message type: expected channnel time range request");
+            }
+        } else {
+            panic!("Incorrect message body type: expected request");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn bytes_to_channel_state_request() -> Result<(), Error> {
+        // Test vector binary.
+        let msg_bytes = <Vec<u8>>::from_hex(CHANNEL_STATE_REQUEST_HEX_BINARY)?;
+
+        // Decode the byte slice to `Message`.
+        let (_, msg) = Message::from_bytes(&msg_bytes)?;
+
+        /* HEADER FIELD VALUES */
+
+        let expected_msg_type = 5;
+        let expected_circuit_id = CIRCUIT_ID;
+        let expected_req_id = <[u8; 4]>::from_hex(REQ_ID)?;
+
+        let MessageHeader {
+            msg_type,
+            circuit_id,
+            req_id,
+        } = msg.header;
+
+        // Ensure the message header fields are correct.
+        assert_eq!(msg_type, expected_msg_type);
+        assert_eq!(circuit_id, expected_circuit_id);
+        assert_eq!(req_id, expected_req_id);
+
+        /* BODY FIELD VALUES */
+
+        let expected_channel = "default".to_string();
+        let expected_future = 0;
+
+        // Ensure the message body fields are correct.
+        if let MessageBody::Request { ttl, body } = msg.body {
+            assert_eq!(ttl, TTL);
+            if let RequestBody::ChannelState { channel, future } = body {
+                assert_eq!(channel, expected_channel);
+                assert_eq!(future, expected_future);
+            } else {
+                panic!("Incorrect message type: expected channnel state request");
+            }
+        } else {
+            panic!("Incorrect message body type: expected request");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn bytes_to_channel_list_request() -> Result<(), Error> {
+        // Test vector binary.
+        let msg_bytes = <Vec<u8>>::from_hex(CHANNEL_LIST_REQUEST_HEX_BINARY)?;
+
+        // Decode the byte slice to `Message`.
+        let (_, msg) = Message::from_bytes(&msg_bytes)?;
+
+        /* HEADER FIELD VALUES */
+
+        let expected_msg_type = 6;
+        let expected_circuit_id = CIRCUIT_ID;
+        let expected_req_id = <[u8; 4]>::from_hex(REQ_ID)?;
+
+        let MessageHeader {
+            msg_type,
+            circuit_id,
+            req_id,
+        } = msg.header;
+
+        // Ensure the message header fields are correct.
+        assert_eq!(msg_type, expected_msg_type);
+        assert_eq!(circuit_id, expected_circuit_id);
+        assert_eq!(req_id, expected_req_id);
+
+        /* BODY FIELD VALUES */
+
+        let expected_skip = 0;
+        let expected_limit = 20;
+
+        // Ensure the message body fields are correct.
+        if let MessageBody::Request { ttl, body } = msg.body {
+            assert_eq!(ttl, TTL);
+            if let RequestBody::ChannelList { skip, limit } = body {
+                assert_eq!(skip, expected_skip);
+                assert_eq!(limit, expected_limit);
+            } else {
+                panic!("Incorrect message type: expected channnel list request");
             }
         } else {
             panic!("Incorrect message body type: expected request");
