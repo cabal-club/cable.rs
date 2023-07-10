@@ -398,7 +398,7 @@ impl FromBytes for Post {
         let (s, timestamp) = varint::decode(&buf[offset..])?;
         offset += s;
 
-        // Read the post header field bytes.
+        // Construct the post header.
         let header = PostHeader {
             public_key,
             signature,
@@ -524,7 +524,7 @@ impl FromBytes for Post {
                 // Read the channel bytes and increment the offset.
                 let channel =
                     String::from_utf8(buf[offset..offset + channel_len as usize].to_vec())?;
-                offset += s;
+                offset += channel_len as usize;
 
                 PostBody::Join { channel }
             }
@@ -537,7 +537,7 @@ impl FromBytes for Post {
                 // Read the channel bytes and increment the offset.
                 let channel =
                     String::from_utf8(buf[offset..offset + channel_len as usize].to_vec())?;
-                offset += s;
+                offset += channel_len as usize;
 
                 PostBody::Leave { channel }
             }
