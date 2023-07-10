@@ -678,8 +678,8 @@ impl FromBytes for Message {
 #[cfg(test)]
 mod test {
     use super::{
-        EncodedPost, Error, Hash, Message, MessageBody, MessageHeader, RequestBody, ResponseBody,
-        ToBytes,
+        EncodedPost, Error, FromBytes, Hash, Message, MessageBody, MessageHeader, RequestBody,
+        ResponseBody, ToBytes,
     };
 
     use hex::FromHex;
@@ -688,23 +688,26 @@ mod test {
 
     // The circuit_id field is not currently in use; set to all zeros.
     const CIRCUIT_ID: [u8; 4] = [0, 0, 0, 0];
+    const REQ_ID: &str = "04baaffb";
+    const TTL: u8 = 1;
+
+    const POST_REQUEST_HEX_BINARY: &str = "6b020000000004baaffb010315ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e597fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db689c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa";
 
     /* MESSAGE TO BYTES TESTS */
 
     #[test]
-    fn hash_request_to_bytes() -> Result<(), Error> {
+    fn post_request_to_bytes() -> Result<(), Error> {
         /* HEADER FIELD VALUES */
 
         let msg_len = 107;
         let msg_type = 2;
-        let req_id = <[u8; 4]>::from_hex("04baaffb")?;
+        let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
         // Construct a new message header.
         let header = MessageHeader::new(msg_type, CIRCUIT_ID, req_id);
 
         /* BODY FIELD VALUES */
 
-        let ttl = 1;
         // Create a vector of hashes.
         let hashes: Vec<Hash> = vec![
             <[u8; 32]>::from_hex(
@@ -722,7 +725,7 @@ mod test {
         let req_body = RequestBody::Post { hashes };
         // Construct a new message body.
         let body = MessageBody::Request {
-            ttl,
+            ttl: TTL,
             body: req_body,
         };
 
@@ -732,9 +735,7 @@ mod test {
         let msg_bytes = msg.to_bytes()?;
 
         // Test vector binary.
-        let expected_bytes = <Vec<u8>>::from_hex(
-            "6b020000000004baaffb010315ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e597fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db689c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa",
-        )?;
+        let expected_bytes = <Vec<u8>>::from_hex(POST_REQUEST_HEX_BINARY)?;
 
         // Ensure the number of generated message bytes matches the number of
         // expected bytes.
@@ -752,14 +753,13 @@ mod test {
 
         let msg_len = 14;
         let msg_type = 3;
-        let req_id = <[u8; 4]>::from_hex("04baaffb")?;
+        let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
         // Construct a new message header.
         let header = MessageHeader::new(msg_type, CIRCUIT_ID, req_id);
 
         /* BODY FIELD VALUES */
 
-        let ttl = 1;
         let cancel_id = <[u8; 4]>::from_hex("31b5c9e1")?;
 
         // Construct a new request body.
@@ -767,7 +767,7 @@ mod test {
         // Construct a new message body.
         let body = MessageBody::Request {
             body: req_body,
-            ttl,
+            ttl: TTL,
         };
 
         // Construct a new message.
@@ -794,14 +794,13 @@ mod test {
 
         let msg_len = 21;
         let msg_type = 4;
-        let req_id = <[u8; 4]>::from_hex("04baaffb")?;
+        let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
         // Construct a new message header.
         let header = MessageHeader::new(msg_type, CIRCUIT_ID, req_id);
 
         /* BODY FIELD VALUES */
 
-        let ttl = 1;
         let channel = "default".to_string();
         let time_start = 0;
         let time_end = 100;
@@ -817,7 +816,7 @@ mod test {
         // Construct a new message body.
         let body = MessageBody::Request {
             body: req_body,
-            ttl,
+            ttl: TTL,
         };
 
         // Construct a new message.
@@ -844,14 +843,13 @@ mod test {
 
         let msg_len = 19;
         let msg_type = 5;
-        let req_id = <[u8; 4]>::from_hex("04baaffb")?;
+        let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
         // Construct a new message header.
         let header = MessageHeader::new(msg_type, CIRCUIT_ID, req_id);
 
         /* BODY FIELD VALUES */
 
-        let ttl = 1;
         let channel = "default".to_string();
         let future = 0;
 
@@ -860,7 +858,7 @@ mod test {
         // Construct a new message body.
         let body = MessageBody::Request {
             body: req_body,
-            ttl,
+            ttl: TTL,
         };
 
         // Construct a new message.
@@ -887,14 +885,13 @@ mod test {
 
         let msg_len = 12;
         let msg_type = 6;
-        let req_id = <[u8; 4]>::from_hex("04baaffb")?;
+        let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
         // Construct a new message header.
         let header = MessageHeader::new(msg_type, CIRCUIT_ID, req_id);
 
         /* BODY FIELD VALUES */
 
-        let ttl = 1;
         let skip = 0;
         let limit = 20;
 
@@ -903,7 +900,7 @@ mod test {
         // Construct a new message body.
         let body = MessageBody::Request {
             body: req_body,
-            ttl,
+            ttl: TTL,
         };
 
         // Construct a new message.
@@ -930,7 +927,7 @@ mod test {
 
         let msg_len = 106;
         let msg_type = 0;
-        let req_id = <[u8; 4]>::from_hex("04baaffb")?;
+        let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
         // Construct a new message header.
         let header = MessageHeader::new(msg_type, CIRCUIT_ID, req_id);
@@ -979,7 +976,7 @@ mod test {
 
         let msg_len = 151;
         let msg_type = 1;
-        let req_id = <[u8; 4]>::from_hex("04baaffb")?;
+        let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
         // Construct a new message header.
         let header = MessageHeader::new(msg_type, CIRCUIT_ID, req_id);
@@ -1018,7 +1015,7 @@ mod test {
 
         let msg_len = 35;
         let msg_type = 7;
-        let req_id = <[u8; 4]>::from_hex("04baaffb")?;
+        let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
         // Construct a new message header.
         let header = MessageHeader::new(msg_type, CIRCUIT_ID, req_id);
@@ -1053,6 +1050,62 @@ mod test {
 
         // Ensure the generated message bytes match the expected bytes.
         assert_eq!(msg_bytes, expected_bytes);
+
+        Ok(())
+    }
+
+    /* BYTES TO MESSAGE TESTS */
+
+    #[test]
+    fn bytes_to_post_request() -> Result<(), Error> {
+        // Test vector binary.
+        let msg_bytes = <Vec<u8>>::from_hex(POST_REQUEST_HEX_BINARY)?;
+
+        // Decode the byte slice to `Message`.
+        let (_, msg) = Message::from_bytes(&msg_bytes)?;
+
+        /* HEADER FIELD VALUES */
+
+        let expected_msg_type = 2;
+        let expected_circuit_id = CIRCUIT_ID;
+        let expected_req_id = <[u8; 4]>::from_hex(REQ_ID)?;
+
+        let MessageHeader {
+            msg_type,
+            circuit_id,
+            req_id,
+        } = msg.header;
+
+        // Ensure the message header fields are correct.
+        assert_eq!(msg_type, expected_msg_type);
+        assert_eq!(circuit_id, expected_circuit_id);
+        assert_eq!(req_id, expected_req_id);
+
+        /* BODY FIELD VALUES */
+
+        let expected_hashes: Vec<Hash> = vec![
+            <[u8; 32]>::from_hex(
+                "15ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e5",
+            )?,
+            <[u8; 32]>::from_hex(
+                "97fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db68",
+            )?,
+            <[u8; 32]>::from_hex(
+                "9c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa",
+            )?,
+        ];
+
+        // Ensure the message body fields are correct.
+        if let MessageBody::Request { ttl, body } = msg.body {
+            assert_eq!(ttl, TTL);
+            if let RequestBody::Post { hashes } = body {
+                assert_eq!(hashes, expected_hashes);
+            } else {
+                panic!("Incorrect message type: expected post request");
+            }
+        } else {
+            panic!("Incorrect message body type: expected request");
+        }
 
         Ok(())
     }
