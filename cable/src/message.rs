@@ -436,10 +436,8 @@ impl FromBytes for Message {
 
         // Read the message length byte from the buffer and increment the
         // offset.
-        let (s, num_bytes) = varint::decode(&buf[offset..])?;
+        let (s, _num_bytes) = varint::decode(&buf[offset..])?;
         offset += s;
-        // Calculate the total message length in bytes.
-        let msg_len = (num_bytes as usize) + s;
 
         // Read the message-type byte from the buffer and increment the offset.
         let (s, msg_type) = varint::decode(&buf[offset..])?;
@@ -513,8 +511,7 @@ impl FromBytes for Message {
                     }
 
                     // Read the post bytes and increment the offset.
-                    let mut post = Vec::with_capacity(post_len as usize);
-                    post.copy_from_slice(&buf[offset..offset + post_len as usize]);
+                    let post = buf[offset..offset + post_len as usize].to_vec();
                     offset += post_len as usize;
 
                     posts.push(post);
@@ -667,6 +664,38 @@ impl FromBytes for Message {
                     body: req_body,
                 }
             }
+            // Channel list response.
+            7 => {
+                // Create an empty vector to store channel names.
+                let mut channels: Vec<Channel> = Vec::new();
+
+                // Since there may be several channels, we use a loop
+                // to iterate over the bytes.
+                loop {
+                    // Read the channel length byte and increment the offset.
+                    let (s, channel_len) = varint::decode(&buf[offset..])?;
+                    offset += s;
+
+                    // A channel length value of 0 indicates that there are no
+                    // more key-value pairs to come.
+                    if channel_len == 0 {
+                        // Break out of the loop.
+                        break;
+                    }
+
+                    // Read the key bytes and increment the offset.
+                    let channel =
+                        String::from_utf8(buf[offset..offset + channel_len as usize].to_vec())?;
+                    offset += channel_len as usize;
+
+                    channels.push(channel);
+                }
+
+                // Construct a new response body.
+                let res_body = ResponseBody::ChannelList { channels };
+
+                MessageBody::Response { body: res_body }
+            }
             msg_type => MessageBody::Unrecognized { msg_type },
         };
 
@@ -692,12 +721,18 @@ mod test {
 
     const CANCEL_ID: &str = "31b5c9e1";
 
+    const ENCODED_POST: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b305500764656661756c74";
+
     const POST_REQUEST_HEX_BINARY: &str = "6b020000000004baaffb010315ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e597fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db689c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa";
     const CANCEL_REQUEST_HEX_BINARY: &str = "0e030000000004baaffb0131b5c9e1";
     const CHANNEL_TIME_RANGE_REQUEST_HEX_BINARY: &str =
         "15040000000004baaffb010764656661756c74006414";
     const CHANNEL_STATE_REQUEST_HEX_BINARY: &str = "13050000000004baaffb010764656661756c7400";
     const CHANNEL_LIST_REQUEST_HEX_BINARY: &str = "0c060000000004baaffb010014";
+    const HASH_RESPONSE_HEX_BINARY: &str = "6a000000000004baaffb0315ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e597fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db689c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa";
+    const POST_RESPONSE_HEX_BINARY: &str = "9701010000000004baaffb8b0125b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b305500764656661756c7400";
+    const CHANNEL_LIST_RESPONSE_HEX_BINARY: &str =
+        "23070000000004baaffb0764656661756c74036465760c696e74726f64756374696f6e00";
 
     /* MESSAGE TO BYTES TESTS */
 
@@ -1303,6 +1338,150 @@ mod test {
             }
         } else {
             panic!("Incorrect message body type: expected request");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn bytes_to_hash_response() -> Result<(), Error> {
+        // Test vector binary.
+        let msg_bytes = <Vec<u8>>::from_hex(HASH_RESPONSE_HEX_BINARY)?;
+
+        // Decode the byte slice to `Message`.
+        let (_, msg) = Message::from_bytes(&msg_bytes)?;
+
+        /* HEADER FIELD VALUES */
+
+        let expected_msg_type = 0;
+        let expected_circuit_id = CIRCUIT_ID;
+        let expected_req_id = <[u8; 4]>::from_hex(REQ_ID)?;
+
+        let MessageHeader {
+            msg_type,
+            circuit_id,
+            req_id,
+        } = msg.header;
+
+        // Ensure the message header fields are correct.
+        assert_eq!(msg_type, expected_msg_type);
+        assert_eq!(circuit_id, expected_circuit_id);
+        assert_eq!(req_id, expected_req_id);
+
+        /* BODY FIELD VALUES */
+
+        let expected_hashes: Vec<Hash> = vec![
+            <[u8; 32]>::from_hex(
+                "15ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e5",
+            )?,
+            <[u8; 32]>::from_hex(
+                "97fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db68",
+            )?,
+            <[u8; 32]>::from_hex(
+                "9c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa",
+            )?,
+        ];
+
+        // Ensure the message body fields are correct.
+        if let MessageBody::Response { body } = msg.body {
+            if let ResponseBody::Hash { hashes } = body {
+                assert_eq!(hashes, expected_hashes);
+            } else {
+                panic!("Incorrect message type: expected hash response");
+            }
+        } else {
+            panic!("Incorrect message body type: expected response");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn bytes_to_post_response() -> Result<(), Error> {
+        // Test vector binary.
+        let msg_bytes = <Vec<u8>>::from_hex(POST_RESPONSE_HEX_BINARY)?;
+
+        // Decode the byte slice to `Message`.
+        let (_, msg) = Message::from_bytes(&msg_bytes)?;
+
+        /* HEADER FIELD VALUES */
+
+        let expected_msg_type = 1;
+        let expected_circuit_id = CIRCUIT_ID;
+        let expected_req_id = <[u8; 4]>::from_hex(REQ_ID)?;
+
+        let MessageHeader {
+            msg_type,
+            circuit_id,
+            req_id,
+        } = msg.header;
+
+        // Ensure the message header fields are correct.
+        assert_eq!(msg_type, expected_msg_type);
+        assert_eq!(circuit_id, expected_circuit_id);
+        assert_eq!(req_id, expected_req_id);
+
+        /* BODY FIELD VALUES */
+
+        let expected_posts: Vec<EncodedPost> = vec![<Vec<u8>>::from_hex(ENCODED_POST)?];
+
+        // Ensure the message body fields are correct.
+        if let MessageBody::Response { body } = msg.body {
+            if let ResponseBody::Post { posts } = body {
+                assert_eq!(posts, expected_posts);
+            } else {
+                panic!("Incorrect message type: expected post response");
+            }
+        } else {
+            panic!("Incorrect message body type: expected response");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn bytes_to_channel_list_response() -> Result<(), Error> {
+        // Test vector binary.
+        let msg_bytes = <Vec<u8>>::from_hex(CHANNEL_LIST_RESPONSE_HEX_BINARY)?;
+
+        // Decode the byte slice to `Message`.
+        let (_, msg) = Message::from_bytes(&msg_bytes)?;
+
+        /* HEADER FIELD VALUES */
+
+        let expected_msg_type = 7;
+        let expected_circuit_id = CIRCUIT_ID;
+        let expected_req_id = <[u8; 4]>::from_hex(REQ_ID)?;
+
+        let MessageHeader {
+            msg_type,
+            circuit_id,
+            req_id,
+        } = msg.header;
+
+        // Ensure the message header fields are correct.
+        assert_eq!(msg_type, expected_msg_type);
+        assert_eq!(circuit_id, expected_circuit_id);
+        assert_eq!(req_id, expected_req_id);
+
+        /* BODY FIELD VALUES */
+
+        // Create a vector of channels.
+        let expected_channels = vec![
+            "default".to_string(),
+            "dev".to_string(),
+            "introduction".to_string(),
+        ];
+
+        // Ensure the message body fields are correct.
+        if let MessageBody::Response { body } = msg.body {
+            if let ResponseBody::ChannelList { channels } = body {
+                assert_eq!(channels, expected_channels);
+            } else {
+                panic!("Incorrect message type: expected channel list response");
+            }
+        } else {
+            panic!("Incorrect message body type: expected response");
         }
 
         Ok(())
