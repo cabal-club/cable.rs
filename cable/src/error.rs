@@ -1,3 +1,5 @@
+//! Custom error type with backtrace.
+
 #[cfg(feature = "nightly-features")]
 use std::backtrace::Backtrace;
 

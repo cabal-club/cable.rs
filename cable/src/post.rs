@@ -3,6 +3,9 @@
 //! Includes type definitions for all post types, as well as post header and
 //! body types. Helper methods are included, some of which provide cryptographic
 //! functions such as post signing and hashing.
+//!
+//! Also includes implementations of the `CountBytes`, `FromBytes` and `ToBytes`
+//! traits for `Post`. This forms the core of the cable protocol.
 
 use desert::{varint, CountBytes, FromBytes, ToBytes};
 use sodiumoxide::crypto::{
@@ -35,6 +38,7 @@ impl UserInfo {
 /// The data of an encoded post.
 pub type EncodedPost = Vec<u8>;
 
+/// A complete post including header and body values.
 #[derive(Clone, Debug)]
 pub struct Post {
     pub header: PostHeader,

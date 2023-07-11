@@ -1,3 +1,7 @@
 # cable.rs
 
-Experimental [cable](https://github.com/cabal-club/cable/tree/v1-draft) protocol implementation in Rust.
+An experimental [cable](https://github.com/cabal-club/cable/tree/v1-draft) protocol implementation in Rust.
+
+**Status**: alpha (under active construction; expect changes).
+
+This library provides a means of encoding and decoding binary payloads corresponding to all cable post and message types.
