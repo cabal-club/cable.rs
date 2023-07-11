@@ -1,21 +1,20 @@
-/*
-use crate::{error::CableErrorKind as E, Channel, Error, Hash, Payload, ReqId};
-use desert::{varint, CountBytes, FromBytes, ToBytes};
-*/
-
 //! Message formats for all request and response message types supported by cable.
 //!
 //! Includes type definitions for all request and response message types,
 //! as well as message header and body types. Helper methods are included.
+//!
+//! Also includes implementations of the `CountBytes`, `FromBytes` and `ToBytes`
+//! traits for `Message`. This forms the core of the cable protocol.
 
 use desert::{varint, CountBytes, FromBytes, ToBytes};
 
 use crate::{
     error::{CableErrorKind, Error},
     post::EncodedPost,
-    Channel, CircuitId, EncodedChannel, Hash, ReqId, Timestamp,
+    Channel, CircuitId, Hash, ReqId, Timestamp,
 };
 
+/// A complete message including header and body values.
 #[derive(Clone, Debug)]
 pub struct Message {
     pub header: MessageHeader,
@@ -88,6 +87,7 @@ pub enum MessageBody {
 }
 
 #[derive(Clone, Debug)]
+/// The body of a request message.
 pub enum RequestBody {
     /// Request a set of posts by their hashes.
     ///
@@ -168,6 +168,7 @@ pub enum RequestBody {
 }
 
 #[derive(Clone, Debug)]
+/// The body of a response message.
 pub enum ResponseBody {
     /// Respond with a list of zero or more hashes.
     ///
@@ -740,7 +741,6 @@ mod test {
     fn post_request_to_bytes() -> Result<(), Error> {
         /* HEADER FIELD VALUES */
 
-        let msg_len = 107;
         let msg_type = 2;
         let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
@@ -792,7 +792,6 @@ mod test {
     fn cancel_request_to_bytes() -> Result<(), Error> {
         /* HEADER FIELD VALUES */
 
-        let msg_len = 14;
         let msg_type = 3;
         let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
@@ -833,7 +832,6 @@ mod test {
     fn channel_time_range_request_to_bytes() -> Result<(), Error> {
         /* HEADER FIELD VALUES */
 
-        let msg_len = 21;
         let msg_type = 4;
         let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
@@ -882,7 +880,6 @@ mod test {
     fn channel_state_request_to_bytes() -> Result<(), Error> {
         /* HEADER FIELD VALUES */
 
-        let msg_len = 19;
         let msg_type = 5;
         let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
@@ -924,7 +921,6 @@ mod test {
     fn channel_list_request_to_bytes() -> Result<(), Error> {
         /* HEADER FIELD VALUES */
 
-        let msg_len = 12;
         let msg_type = 6;
         let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
@@ -966,7 +962,6 @@ mod test {
     fn hash_response_to_bytes() -> Result<(), Error> {
         /* HEADER FIELD VALUES */
 
-        let msg_len = 106;
         let msg_type = 0;
         let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
@@ -1015,7 +1010,6 @@ mod test {
     fn post_response_to_bytes() -> Result<(), Error> {
         /* HEADER FIELD VALUES */
 
-        let msg_len = 151;
         let msg_type = 1;
         let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
@@ -1054,7 +1048,6 @@ mod test {
     fn channel_list_response_to_bytes() -> Result<(), Error> {
         /* HEADER FIELD VALUES */
 
-        let msg_len = 35;
         let msg_type = 7;
         let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
