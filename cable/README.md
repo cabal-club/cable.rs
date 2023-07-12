@@ -1,6 +1,6 @@
 # cable.rs
 
-An experimental [cable](https://github.com/cabal-club/cable/tree/v1-draft) protocol implementation in Rust.
+An experimental [cable](https://github.com/cabal-club/cable) protocol implementation in Rust.
 
 **Status**: alpha (under active construction; expect changes).
 
