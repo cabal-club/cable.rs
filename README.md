@@ -6,6 +6,6 @@ Experimental [cable](https://github.com/cabal-club/cable) protocol implementatio
 
 **Crates**
 
-[cable]("cable") : Cable binary payload encoding and decoding (plus post and message types)
-[cable_core]("cable_core) : Store and stream implementations for creating cable peers
-[desert]("desert") : Serialization and deserialization traits (vendored version; authored by substack)
+- [cable](cable/) : Cable binary payload encoding and decoding (plus post and message types)
+- [cable_core](cable_core/) : Store and stream implementations for creating cable peers
+- [desert](desert/) : Serialization and deserialization traits (vendored version; authored by substack)
