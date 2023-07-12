@@ -1,4 +1,4 @@
-# cable.rs
+# cable
 
 An experimental [cable](https://github.com/cabal-club/cable) protocol implementation in Rust.
 
