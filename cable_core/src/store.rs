@@ -12,14 +12,17 @@ use async_std::{
     sync::{Arc, Mutex, RwLock},
     task,
 };
+use cable::{
+    error::Error,
+    post::{Post, PostBody},
+    Channel, Hash, Payload,
+};
 use desert::ToBytes;
 use sodiumoxide::crypto;
 
 use crate::{
-    error::Error,
-    post::{Post, PostBody},
     stream::{HashStream, LiveStream, PostStream},
-    Channel, ChannelOptions, Hash, Payload,
+    ChannelOptions,
 };
 
 /// A public-private keypair.
