@@ -144,10 +144,10 @@ impl Post {
     }
 
     /// Return the timestamp of the post.
-    pub fn get_timestamp(&self) -> Option<u64> {
+    pub fn get_timestamp(&self) -> u64 {
         let PostHeader { timestamp, .. } = &self.header;
 
-        Some(*timestamp)
+        *timestamp
     }
 
     /// Return the hash of the post.
@@ -693,11 +693,9 @@ mod test {
 
         let post = Post { header, body };
 
-        if let Some(retrieved_timestamp) = post.get_timestamp() {
-            assert_eq!(retrieved_timestamp, timestamp)
-        } else {
-            panic!("Failed to retrieve timestamp from leave post");
-        }
+        let retrieved_timestamp = post.get_timestamp();
+
+        assert_eq!(retrieved_timestamp, timestamp);
 
         Ok(())
     }
