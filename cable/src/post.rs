@@ -15,25 +15,8 @@ use sodiumoxide::crypto::{
 
 use crate::{
     error::{CableErrorKind, Error},
-    Channel, Hash, Text, Topic,
+    Channel, Hash, Text, Topic, UserInfo,
 };
-
-#[derive(Clone, Debug, PartialEq)]
-/// Information self-published by a user.
-pub struct UserInfo {
-    pub key: String,
-    pub val: String,
-}
-
-impl UserInfo {
-    /// Convenience method to construct `UserInfo`.
-    pub fn new<T: Into<String>, U: Into<String>>(key: T, val: U) -> Self {
-        UserInfo {
-            key: key.into(),
-            val: val.into(),
-        }
-    }
-}
 
 /// The data of an encoded post.
 pub type EncodedPost = Vec<u8>;
