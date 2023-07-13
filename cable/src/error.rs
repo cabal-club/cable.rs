@@ -28,6 +28,7 @@ pub enum CableErrorKind {
     PostWriteUnrecognizedType { post_type: u64 },
     PostHashingFailed {},
     UsernameLengthIncorrect { name: String, len: usize },
+    ChannelLengthIncorrect { channel: String, len: usize },
 }
 
 impl CableErrorKind {
@@ -98,6 +99,13 @@ impl std::fmt::Display for CableError {
                     f,
                     "expected username between 1 and 32 codepoints; name `{}` is {} codepoints",
                     name, len
+                ]
+            }
+            CableErrorKind::ChannelLengthIncorrect { channel, len } => {
+                write![
+                    f,
+                    "expected channel between 1 and 64 codepoints; channel `{}` is {} codepoints",
+                    channel, len
                 ]
             }
         }
