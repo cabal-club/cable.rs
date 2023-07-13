@@ -7,7 +7,6 @@ pub mod post;
 use crate::error::{CableErrorKind, Error};
 
 /// The name of a channel.
-// TODO: Add a validation function to check length.
 pub type Channel = String;
 /// The circuit ID for an established path.
 pub type CircuitId = [u8; 4];
@@ -70,9 +69,31 @@ impl UserInfo {
     }
 }
 
+/// Validation trait.
+trait Validator {
+    fn validate(&self) -> Result<(), Error>;
+}
+
+impl Validator for Channel {
+    fn validate(&self) -> Result<(), Error> {
+        // Determine the length of the given channel in UTF-8 codepoints.
+        let channel_len = self.chars().count();
+        // The channel must be between 1 and 64 codepoints.
+        if !(1..=64).contains(&channel_len) {
+            return CableErrorKind::ChannelLengthIncorrect {
+                channel: self.to_string(),
+                len: channel_len,
+            }
+            .raise();
+        }
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod test {
-    use super::{Error, UserInfo};
+    use super::{Channel, Error, UserInfo, Validator};
 
     #[test]
     fn validate_username() -> Result<(), Error> {
@@ -96,6 +117,40 @@ mod test {
             Err(e) => assert_eq!(
                 e.to_string(),
                 "expected username between 1 and 32 codepoints; name `Kimmeridgebrachypteraeschnidium etchesi` is 39 codepoints"
+            ),
+            _ => panic!(),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn validate_channel() -> Result<(), Error> {
+        // Test valid channels.
+        let valid_channel: Channel = String::from("home");
+        valid_channel.validate()?;
+        let valid_channel_japanese: Channel = String::from("しろくまカフェ");
+        valid_channel_japanese.validate()?;
+
+        // Test invalid channels.
+
+        let invalid_channel_short: Channel = String::from("");
+        let invalid_channel_long: Channel = String::from("The Tao can't be perceived. Smaller than an electron, it contains uncountable galaxies.");
+
+        // Channel too short.
+        match invalid_channel_short.validate() {
+            Err(e) => assert_eq!(
+                e.to_string(),
+                "expected channel between 1 and 64 codepoints; channel `` is 0 codepoints"
+            ),
+            _ => panic!(),
+        }
+
+        // Channel too long.
+        match invalid_channel_long.validate() {
+            Err(e) => assert_eq!(
+                e.to_string(),
+                "expected channel between 1 and 64 codepoints; channel `The Tao can't be perceived. Smaller than an electron, it contains uncountable galaxies.` is 87 codepoints"
             ),
             _ => panic!(),
         }
