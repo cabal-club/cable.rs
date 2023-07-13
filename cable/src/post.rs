@@ -239,14 +239,6 @@ impl ToBytes for Post {
     fn write_bytes(&self, buf: &mut [u8]) -> Result<usize, Error> {
         let mut offset = 0;
 
-        // Validate the length of the public key, signature and links fields.
-        // TODO: Rather raise an appropriate CableErrorKind here.
-        assert_eq![self.header.public_key.len(), 32];
-        assert_eq![self.header.signature.len(), 64];
-        for link in &self.header.links {
-            assert_eq![link.len(), 32]
-        }
-
         /* POST HEADER BYTES */
 
         // Write the public key bytes to the buffer and increment the offset.
