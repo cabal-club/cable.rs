@@ -6,21 +6,20 @@
 // and released under the BSD-3-CLAUSE license:
 // https://docs.rs/crate/length-prefixed-stream/1.0.0/source/LICENSE
 
-#![cfg_attr(feature = "nightly-features", feature(async_closure, backtrace))]
 #![allow(unused_assignments)]
 #![doc=include_str!("../README.md")]
+
+mod error;
+mod unfold;
+
+use std::{collections::VecDeque, marker::Unpin};
 
 use async_std::{prelude::*, stream::Stream};
 use desert::varint;
 use futures::io::AsyncRead;
-use std::collections::VecDeque;
-use std::marker::Unpin;
 
-mod unfold;
-use unfold::unfold;
-mod error;
-use error::DecodeErrorKind as EK;
 pub use error::{DecodeError, DecodeErrorKind};
+use unfold::unfold;
 
 pub fn decode(
     input: impl AsyncRead + Send + Sync + Unpin + 'static,
@@ -33,12 +32,11 @@ pub fn decode_with_options(
     options: DecodeOptions,
 ) -> Box<dyn Stream<Item = Result<Vec<u8>, DecodeError>> + Send + Sync + Unpin> {
     let state = Decoder::new(input, options);
-    #[cfg(feature = "async_closure")]
-    Box::new(unfold(state, async move |mut state| {
+    Box::new(unfold(state, |mut state| async move {
         match state.next().await {
             Ok(Some(x)) => Some((Ok(x), state)),
             Ok(None) => None,
-            Err(e) => Some((Err(e.into()), state)),
+            Err(e) => Some((Err(e), state)),
         }
     }))
 }
@@ -92,7 +90,7 @@ where
             if n == 0 && self.write_offset == 0 {
                 return Ok(None);
             } else if n == 0 {
-                return EK::UnexpectedEndVarint {}.raise();
+                return DecodeErrorKind::UnexpectedEndVarint {}.raise();
             }
             self.write_offset += n;
             match varint::decode(&self.buffer) {
@@ -118,7 +116,7 @@ where
                     .read(&mut self.buffer[self.write_offset..])
                     .await?;
                 if n == 0 {
-                    return EK::UnexpectedEndMessage {}.raise();
+                    return DecodeErrorKind::UnexpectedEndMessage {}.raise();
                 }
                 self.write_offset += n;
             } else {
