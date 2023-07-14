@@ -5,14 +5,14 @@ use std::backtrace::Backtrace;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct CableError {
     kind: CableErrorKind,
     #[cfg(feature = "nightly-features")]
     backtrace: Backtrace,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum CableErrorKind {
     DstTooSmall { provided: usize, required: usize },
     MessageEmpty {},
@@ -27,6 +27,9 @@ pub enum CableErrorKind {
     NoneError { context: String },
     PostWriteUnrecognizedType { post_type: u64 },
     PostHashingFailed {},
+    UsernameLengthIncorrect { name: String, len: usize },
+    ChannelLengthIncorrect { channel: String, len: usize },
+    TopicLengthIncorrect { topic: String, len: usize },
 }
 
 impl CableErrorKind {
@@ -58,7 +61,7 @@ impl std::fmt::Display for CableError {
             CableErrorKind::DstTooSmall { provided, required } => {
                 write![
                     f,
-                    "destination buffer too small. {} bytes required, {} provided",
+                    "destination buffer too small; {} bytes required, {} provided",
                     required, provided
                 ]
             }
@@ -91,6 +94,27 @@ impl std::fmt::Display for CableError {
             }
             CableErrorKind::PostWriteUnrecognizedType { post_type } => {
                 write![f, "cannot write unrecognized post_type={}", post_type]
+            }
+            CableErrorKind::UsernameLengthIncorrect { name, len } => {
+                write![
+                    f,
+                    "expected username between 1 and 32 codepoints; name `{}` is {} codepoints",
+                    name, len
+                ]
+            }
+            CableErrorKind::ChannelLengthIncorrect { channel, len } => {
+                write![
+                    f,
+                    "expected channel between 1 and 64 codepoints; channel `{}` is {} codepoints",
+                    channel, len
+                ]
+            }
+            CableErrorKind::TopicLengthIncorrect { topic, len } => {
+                write![
+                    f,
+                    "expected topic between 0 and 512 codepoints; topic `{}` is {} codepoints",
+                    topic, len
+                ]
             }
         }
     }
