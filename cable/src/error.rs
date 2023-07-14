@@ -29,6 +29,7 @@ pub enum CableErrorKind {
     PostHashingFailed {},
     UsernameLengthIncorrect { name: String, len: usize },
     ChannelLengthIncorrect { channel: String, len: usize },
+    TopicLengthIncorrect { topic: String, len: usize },
 }
 
 impl CableErrorKind {
@@ -106,6 +107,13 @@ impl std::fmt::Display for CableError {
                     f,
                     "expected channel between 1 and 64 codepoints; channel `{}` is {} codepoints",
                     channel, len
+                ]
+            }
+            CableErrorKind::TopicLengthIncorrect { topic, len } => {
+                write![
+                    f,
+                    "expected topic between 0 and 512 codepoints; topic `{}` is {} codepoints",
+                    topic, len
                 ]
             }
         }
