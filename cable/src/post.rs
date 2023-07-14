@@ -396,9 +396,12 @@ impl FromBytes for Post {
                 let (s, channel_len) = varint::decode(&buf[offset..])?;
                 offset += s;
 
-                // Read the channel bytes and increment the offset.
+                // Read the channel bytes.
                 let channel =
                     String::from_utf8(buf[offset..offset + channel_len as usize].to_vec())?;
+                // Validate the length of the channel name.
+                crate::validate_channel(&channel)?;
+                // Increment the offset.
                 offset += channel_len as usize;
 
                 // Read the text length byte and increment the offset.
@@ -466,7 +469,12 @@ impl FromBytes for Post {
                     let val = String::from_utf8(buf[offset..offset + val_len as usize].to_vec())?;
                     offset += val_len as usize;
 
-                    let key_val = UserInfo::new(key, val);
+                    let key_val = if key == "name" {
+                        // This method also performs validation.
+                        UserInfo::name(val)?
+                    } else {
+                        UserInfo::new(key, val)
+                    };
 
                     info.push(key_val);
                 }
@@ -479,17 +487,23 @@ impl FromBytes for Post {
                 let (s, channel_len) = varint::decode(&buf[offset..])?;
                 offset += s;
 
-                // Read the channel bytes and increment the offset.
+                // Read the channel bytes.
                 let channel =
                     String::from_utf8(buf[offset..offset + channel_len as usize].to_vec())?;
+                // Validate the length of the channel name.
+                crate::validate_channel(&channel)?;
+                // Increment the offset.
                 offset += channel_len as usize;
 
                 // Read the topic length byte and increment the offset.
                 let (s, topic_len) = varint::decode(&buf[offset..])?;
                 offset += s;
 
-                // Read the topic bytes and increment the offset.
+                // Read the topic bytes.
                 let topic = String::from_utf8(buf[offset..offset + topic_len as usize].to_vec())?;
+                // Validate the length of the topic.
+                crate::validate_topic(&topic)?;
+                // Increment the offset.
                 offset += topic_len as usize;
 
                 PostBody::Topic { channel, topic }
@@ -500,9 +514,12 @@ impl FromBytes for Post {
                 let (s, channel_len) = varint::decode(&buf[offset..])?;
                 offset += s;
 
-                // Read the channel bytes and increment the offset.
+                // Read the channel bytes.
                 let channel =
                     String::from_utf8(buf[offset..offset + channel_len as usize].to_vec())?;
+                // Validate the length of the channel name.
+                crate::validate_channel(&channel)?;
+                // Increment the offset.
                 offset += channel_len as usize;
 
                 PostBody::Join { channel }
@@ -513,9 +530,12 @@ impl FromBytes for Post {
                 let (s, channel_len) = varint::decode(&buf[offset..])?;
                 offset += s;
 
-                // Read the channel bytes and increment the offset.
+                // Read the channel bytes.
                 let channel =
                     String::from_utf8(buf[offset..offset + channel_len as usize].to_vec())?;
+                // Validate the length of the channel name.
+                crate::validate_channel(&channel)?;
+                // Increment the offset.
                 offset += channel_len as usize;
 
                 PostBody::Leave { channel }
