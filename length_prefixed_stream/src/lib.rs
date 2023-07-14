@@ -6,7 +6,7 @@
 // and released under the BSD-3-CLAUSE license:
 // https://docs.rs/crate/length-prefixed-stream/1.0.0/source/LICENSE
 
-#![feature(async_closure, backtrace)]
+#![cfg_attr(feature = "nightly-features", feature(async_closure, backtrace))]
 #![allow(unused_assignments)]
 #![doc=include_str!("../README.md")]
 
@@ -33,6 +33,7 @@ pub fn decode_with_options(
     options: DecodeOptions,
 ) -> Box<dyn Stream<Item = Result<Vec<u8>, DecodeError>> + Send + Sync + Unpin> {
     let state = Decoder::new(input, options);
+    #[cfg(feature = "async_closure")]
     Box::new(unfold(state, async move |mut state| {
         match state.next().await {
             Ok(Some(x)) => Some((Ok(x), state)),
