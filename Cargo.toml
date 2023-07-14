@@ -3,5 +3,6 @@
 members = [
     "cable",
     "cable_core",
-    "desert"
+    "desert",
+    "length_prefixed_stream"
 ]
