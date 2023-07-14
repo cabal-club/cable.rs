@@ -1,5 +1,7 @@
 // Vendored version of length-prefixed-stream 1.0.0
 //
+// Minor changes have been made to fix compilation errors.
+//
 // The original source files from which this is derived is
 // Copyright (c) 2021 James Halliday
 //
