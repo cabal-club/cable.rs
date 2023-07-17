@@ -22,13 +22,6 @@ use crate::{
 /// The data of an encoded post.
 pub type EncodedPost = Vec<u8>;
 
-/// A complete post including header and body values.
-#[derive(Clone, Debug)]
-pub struct Post {
-    pub header: PostHeader,
-    pub body: PostBody,
-}
-
 #[derive(Clone, Debug)]
 /// The header of a post.
 pub struct PostHeader {
@@ -108,9 +101,31 @@ pub enum PostBody {
     Unrecognized { post_type: u64 },
 }
 
+/// A complete post including header and body values.
+#[derive(Clone, Debug)]
+pub struct Post {
+    pub header: PostHeader,
+    pub body: PostBody,
+}
+
 impl Post {
-    /// Convenience method to construct a `Post` from a header and body.
+    /// Construct a `Post` from a header and body.
     pub fn new(header: PostHeader, body: PostBody) -> Self {
+        Post { header, body }
+    }
+
+    /// Construct a text `Post` with the given parameters.
+    pub fn text(
+        public_key: [u8; 32],
+        signature: [u8; 64],
+        links: Vec<Hash>,
+        timestamp: u64,
+        channel: Channel,
+        text: Text,
+    ) -> Self {
+        let header = PostHeader::new(public_key, signature, links, TEXT_POST, timestamp);
+        let body = PostBody::Text { channel, text };
+
         Post { header, body }
     }
 
