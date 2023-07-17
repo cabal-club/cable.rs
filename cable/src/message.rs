@@ -9,6 +9,10 @@
 use desert::{varint, CountBytes, FromBytes, ToBytes};
 
 use crate::{
+    constants::{
+        CANCEL_REQUEST, CHANNEL_LIST_REQUEST, CHANNEL_LIST_RESPONSE, CHANNEL_STATE_REQUEST,
+        CHANNEL_TIME_RANGE_REQUEST, HASH_RESPONSE, POST_REQUEST, POST_RESPONSE,
+    },
     error::{CableErrorKind, Error},
     post::EncodedPost,
     Channel, CircuitId, Hash, ReqId, Timestamp,
@@ -22,7 +26,7 @@ pub struct Message {
 }
 
 impl Message {
-    /// Convenience method to construct a `Message` from a header and body.
+    /// Construct a `Message` from a header and body.
     pub fn new(header: MessageHeader, body: MessageBody) -> Self {
         Message { header, body }
     }
@@ -31,19 +35,29 @@ impl Message {
     pub fn message_type(&self) -> u64 {
         match &self.body {
             MessageBody::Request { body, .. } => match body {
-                RequestBody::Post { .. } => 2,
-                RequestBody::Cancel { .. } => 3,
-                RequestBody::ChannelTimeRange { .. } => 4,
-                RequestBody::ChannelState { .. } => 5,
-                RequestBody::ChannelList { .. } => 6,
+                RequestBody::Post { .. } => POST_REQUEST,
+                RequestBody::Cancel { .. } => CANCEL_REQUEST,
+                RequestBody::ChannelTimeRange { .. } => CHANNEL_TIME_RANGE_REQUEST,
+                RequestBody::ChannelState { .. } => CHANNEL_STATE_REQUEST,
+                RequestBody::ChannelList { .. } => CHANNEL_LIST_REQUEST,
             },
             MessageBody::Response { body } => match body {
-                ResponseBody::Hash { .. } => 0,
-                ResponseBody::Post { .. } => 1,
-                ResponseBody::ChannelList { .. } => 7,
+                ResponseBody::Hash { .. } => HASH_RESPONSE,
+                ResponseBody::Post { .. } => POST_RESPONSE,
+                ResponseBody::ChannelList { .. } => CHANNEL_LIST_RESPONSE,
             },
             MessageBody::Unrecognized { msg_type } => *msg_type,
         }
+    }
+
+    /// Construct a hash response `Message` with the given parameters.
+    pub fn hash_response(circuit_id: CircuitId, req_id: ReqId, hashes: Vec<Hash>) -> Self {
+        let header = MessageHeader::new(HASH_RESPONSE, circuit_id, req_id);
+        let body = MessageBody::Response {
+            body: ResponseBody::Hash { hashes },
+        };
+
+        Message::new(header, body)
     }
 }
 
@@ -465,8 +479,7 @@ impl FromBytes for Message {
 
         // Read message body field bytes.
         let body = match msg_type {
-            // Hash response.
-            0 => {
+            HASH_RESPONSE => {
                 // Read the number of hashes byte and increment the offset.
                 let (s, num_hashes) = varint::decode(&buf[offset..])?;
                 offset += s;
@@ -492,8 +505,7 @@ impl FromBytes for Message {
 
                 MessageBody::Response { body: res_body }
             }
-            // Post response.
-            1 => {
+            POST_RESPONSE => {
                 // Create an empty vector to store encoded posts.
                 let mut posts: Vec<EncodedPost> = Vec::new();
 
@@ -523,8 +535,7 @@ impl FromBytes for Message {
 
                 MessageBody::Response { body: res_body }
             }
-            // Post request.
-            2 => {
+            POST_REQUEST => {
                 // Read the TTL byte and increment the offset.
                 let (s, ttl) = varint::decode(&buf[offset..])?;
                 offset += s;
@@ -557,8 +568,7 @@ impl FromBytes for Message {
                     body: req_body,
                 }
             }
-            // Cancel request.
-            3 => {
+            CANCEL_REQUEST => {
                 // Read the TTL byte and increment the offset.
                 let (s, ttl) = varint::decode(&buf[offset..])?;
                 offset += s;
@@ -577,8 +587,7 @@ impl FromBytes for Message {
                     body: req_body,
                 }
             }
-            // Channel time range request.
-            4 => {
+            CHANNEL_TIME_RANGE_REQUEST => {
                 // Read the TTL byte and increment the offset.
                 let (s, ttl) = varint::decode(&buf[offset..])?;
                 offset += s;
@@ -616,8 +625,7 @@ impl FromBytes for Message {
                     body: req_body,
                 }
             }
-            // Channel state request.
-            5 => {
+            CHANNEL_STATE_REQUEST => {
                 // Read the TTL byte and increment the offset.
                 let (s, ttl) = varint::decode(&buf[offset..])?;
                 offset += s;
@@ -643,8 +651,7 @@ impl FromBytes for Message {
                     body: req_body,
                 }
             }
-            // Channel list request.
-            6 => {
+            CHANNEL_LIST_REQUEST => {
                 // Read the TTL byte and increment the offset.
                 let (s, ttl) = varint::decode(&buf[offset..])?;
                 offset += s;
@@ -665,8 +672,7 @@ impl FromBytes for Message {
                     body: req_body,
                 }
             }
-            // Channel list response.
-            7 => {
+            CHANNEL_LIST_RESPONSE => {
                 // Create an empty vector to store channel names.
                 let mut channels: Vec<Channel> = Vec::new();
 
@@ -708,7 +714,9 @@ impl FromBytes for Message {
 mod test {
     use super::{
         EncodedPost, Error, FromBytes, Hash, Message, MessageBody, MessageHeader, RequestBody,
-        ResponseBody, ToBytes,
+        ResponseBody, ToBytes, CANCEL_REQUEST, CHANNEL_LIST_REQUEST, CHANNEL_LIST_RESPONSE,
+        CHANNEL_STATE_REQUEST, CHANNEL_TIME_RANGE_REQUEST, HASH_RESPONSE, POST_REQUEST,
+        POST_RESPONSE,
     };
 
     use hex::FromHex;
@@ -741,7 +749,7 @@ mod test {
     fn post_request_to_bytes() -> Result<(), Error> {
         /* HEADER FIELD VALUES */
 
-        let msg_type = 2;
+        let msg_type = POST_REQUEST;
         let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
         // Construct a new message header.
@@ -792,7 +800,7 @@ mod test {
     fn cancel_request_to_bytes() -> Result<(), Error> {
         /* HEADER FIELD VALUES */
 
-        let msg_type = 3;
+        let msg_type = CANCEL_REQUEST;
         let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
         // Construct a new message header.
@@ -832,7 +840,7 @@ mod test {
     fn channel_time_range_request_to_bytes() -> Result<(), Error> {
         /* HEADER FIELD VALUES */
 
-        let msg_type = 4;
+        let msg_type = CHANNEL_TIME_RANGE_REQUEST;
         let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
         // Construct a new message header.
@@ -880,7 +888,7 @@ mod test {
     fn channel_state_request_to_bytes() -> Result<(), Error> {
         /* HEADER FIELD VALUES */
 
-        let msg_type = 5;
+        let msg_type = CHANNEL_STATE_REQUEST;
         let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
         // Construct a new message header.
@@ -921,7 +929,7 @@ mod test {
     fn channel_list_request_to_bytes() -> Result<(), Error> {
         /* HEADER FIELD VALUES */
 
-        let msg_type = 6;
+        let msg_type = CHANNEL_LIST_REQUEST;
         let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
         // Construct a new message header.
@@ -962,7 +970,7 @@ mod test {
     fn hash_response_to_bytes() -> Result<(), Error> {
         /* HEADER FIELD VALUES */
 
-        let msg_type = 0;
+        let msg_type = HASH_RESPONSE;
         let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
         // Construct a new message header.
@@ -1010,7 +1018,7 @@ mod test {
     fn post_response_to_bytes() -> Result<(), Error> {
         /* HEADER FIELD VALUES */
 
-        let msg_type = 1;
+        let msg_type = POST_RESPONSE;
         let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
         // Construct a new message header.
@@ -1048,7 +1056,7 @@ mod test {
     fn channel_list_response_to_bytes() -> Result<(), Error> {
         /* HEADER FIELD VALUES */
 
-        let msg_type = 7;
+        let msg_type = CHANNEL_LIST_RESPONSE;
         let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
         // Construct a new message header.
@@ -1100,7 +1108,7 @@ mod test {
 
         /* HEADER FIELD VALUES */
 
-        let expected_msg_type = 2;
+        let expected_msg_type = POST_REQUEST;
         let expected_circuit_id = CIRCUIT_ID;
         let expected_req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
@@ -1154,7 +1162,7 @@ mod test {
 
         /* HEADER FIELD VALUES */
 
-        let expected_msg_type = 3;
+        let expected_msg_type = CANCEL_REQUEST;
         let expected_circuit_id = CIRCUIT_ID;
         let expected_req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
@@ -1198,7 +1206,7 @@ mod test {
 
         /* HEADER FIELD VALUES */
 
-        let expected_msg_type = 4;
+        let expected_msg_type = CHANNEL_TIME_RANGE_REQUEST;
         let expected_circuit_id = CIRCUIT_ID;
         let expected_req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
@@ -1254,7 +1262,7 @@ mod test {
 
         /* HEADER FIELD VALUES */
 
-        let expected_msg_type = 5;
+        let expected_msg_type = CHANNEL_STATE_REQUEST;
         let expected_circuit_id = CIRCUIT_ID;
         let expected_req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
@@ -1300,7 +1308,7 @@ mod test {
 
         /* HEADER FIELD VALUES */
 
-        let expected_msg_type = 6;
+        let expected_msg_type = CHANNEL_LIST_REQUEST;
         let expected_circuit_id = CIRCUIT_ID;
         let expected_req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
@@ -1346,7 +1354,7 @@ mod test {
 
         /* HEADER FIELD VALUES */
 
-        let expected_msg_type = 0;
+        let expected_msg_type = HASH_RESPONSE;
         let expected_circuit_id = CIRCUIT_ID;
         let expected_req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
@@ -1399,7 +1407,7 @@ mod test {
 
         /* HEADER FIELD VALUES */
 
-        let expected_msg_type = 1;
+        let expected_msg_type = POST_RESPONSE;
         let expected_circuit_id = CIRCUIT_ID;
         let expected_req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
@@ -1442,7 +1450,7 @@ mod test {
 
         /* HEADER FIELD VALUES */
 
-        let expected_msg_type = 7;
+        let expected_msg_type = CHANNEL_LIST_RESPONSE;
         let expected_circuit_id = CIRCUIT_ID;
         let expected_req_id = <[u8; 4]>::from_hex(REQ_ID)?;
 
