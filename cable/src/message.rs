@@ -712,6 +712,8 @@ impl FromBytes for Message {
 
 #[cfg(test)]
 mod test {
+    use crate::constants::NO_CIRCUIT;
+
     use super::{
         EncodedPost, Error, FromBytes, Hash, Message, MessageBody, MessageHeader, RequestBody,
         ResponseBody, ToBytes, CANCEL_REQUEST, CHANNEL_LIST_REQUEST, CHANNEL_LIST_RESPONSE,
@@ -724,7 +726,7 @@ mod test {
     // Field values sourced from https://github.com/cabal-club/cable.js#examples.
 
     // The circuit_id field is not currently in use; set to all zeros.
-    const CIRCUIT_ID: [u8; 4] = [0, 0, 0, 0];
+    const CIRCUIT_ID: [u8; 4] = NO_CIRCUIT;
     const REQ_ID: &str = "04baaffb";
     const TTL: u8 = 1;
 

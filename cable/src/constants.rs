@@ -20,3 +20,7 @@ pub const CANCEL_REQUEST: u64 = 3;
 pub const CHANNEL_TIME_RANGE_REQUEST: u64 = 4;
 pub const CHANNEL_STATE_REQUEST: u64 = 5;
 pub const CHANNEL_LIST_REQUEST: u64 = 6;
+
+/* MISC FIELD VALUES */
+
+pub const NO_CIRCUIT: [u8; 4] = [0, 0, 0, 0];
