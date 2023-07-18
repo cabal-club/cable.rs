@@ -14,16 +14,13 @@ use async_std::{
 };
 use cable::{
     error::Error,
-    post::{Post, PostBody},
-    Channel, Hash, Payload,
+    post::{EncodedPost, Post, PostBody},
+    Channel, ChannelOptions, Hash, Payload,
 };
 use desert::ToBytes;
 use sodiumoxide::crypto;
 
-use crate::{
-    stream::{HashStream, LiveStream, PostStream},
-    ChannelOptions,
-};
+use crate::stream::{HashStream, LiveStream, PostStream};
 
 /// A public-private keypair.
 pub type Keypair = ([u8; 32], [u8; 64]);
@@ -58,7 +55,7 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
 
     /// Retrieve the hash of the most recently published post in the given
     /// channel.
-    async fn get_latest_hash(&mut self, channel: &[u8]) -> Result<[u8; 32], Error>;
+    async fn get_latest_hash(&mut self, channel: &Channel) -> Result<Hash, Error>;
 
     /// Insert the given post into the store.
     async fn insert_post(&mut self, post: &Post) -> Result<(), Error>;
@@ -81,8 +78,9 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
     /// all posts which are not already in the store).
     async fn want(&mut self, hashes: &[Hash]) -> Result<Vec<Hash>, Error>;
 
-    /// Retrieve the post data for all posts represented by the given hashes.
-    async fn get_data(&mut self, hashes: &[Hash]) -> Result<Vec<Payload>, Error>;
+    /// Retrieve the post payloads for all posts represented by the given hashes.
+    // TODO: Consider renaming to `get_encoded_posts()`.
+    async fn get_post_payloads(&mut self, hashes: &[Hash]) -> Result<Vec<EncodedPost>, Error>;
 }
 
 #[derive(Clone)]
@@ -140,7 +138,7 @@ impl Store for MemoryStore {
         Ok(())
     }
 
-    async fn get_latest_hash(&mut self, _channel: &[u8]) -> Result<[u8; 32], Error> {
+    async fn get_latest_hash(&mut self, _channel: &Channel) -> Result<Hash, Error> {
         // TODO: Return the latest post hash, if available, instead of zeros.
         Ok([0; 32])
     }
@@ -345,7 +343,7 @@ impl Store for MemoryStore {
             .collect())
     }
 
-    async fn get_data(&mut self, hashes: &[Hash]) -> Result<Vec<Payload>, Error> {
+    async fn get_post_payloads(&mut self, hashes: &[Hash]) -> Result<Vec<EncodedPost>, Error> {
         let data = self.data.read().await;
 
         Ok(hashes
