@@ -153,7 +153,7 @@ where
         } = msg.header;
 
         // TODO: Forward requests.
-        match msg.body {
+        match &msg.body {
             MessageBody::Request { ttl, body } => match body {
                 RequestBody::Post { hashes } => {
                     let posts = self.store.get_post_payloads(&hashes).await?;
@@ -172,22 +172,24 @@ where
                 } => {
                     // TODO: Consider simply using `ChannelOptions` (clearer).
                     let opts = GetPostOptions {
-                        channel,
-                        time_start,
-                        time_end,
-                        limit,
+                        channel: channel.to_string(),
+                        time_start: *time_start,
+                        time_end: *time_end,
+                        limit: *limit,
                     };
-                    let n_limit = (limit).min(4096);
+                    let n_limit = (*limit).min(4096);
 
                     let mut hashes = vec![];
-                    // Create a stream of post hashes matching the given criteria.
-                    let mut stream = self.store.get_post_hashes(&opts).await?;
-                    // Iterate over the hashes in the stream.
-                    while let Some(result) = stream.next().await {
-                        hashes.push(result?);
-                        // Break out of the loop once the requested limit is met.
-                        if hashes.len() as u64 >= n_limit {
-                            break;
+                    {
+                        // Create a stream of post hashes matching the given criteria.
+                        let mut stream = self.store.get_post_hashes(&opts).await?;
+                        // Iterate over the hashes in the stream.
+                        while let Some(result) = stream.next().await {
+                            hashes.push(result?);
+                            // Break out of the loop once the requested limit is met.
+                            if hashes.len() as u64 >= n_limit {
+                                break;
+                            }
                         }
                     }
 
@@ -196,7 +198,7 @@ where
                     // Add the peer and request ID to the request tracker if
                     // the end time has been set to 0 (i.e. keep this request
                     // alive and send new messages as they become available).
-                    if time_end == 0 {
+                    if *time_end == 0 {
                         let mut w = self.listening.write().await;
                         if let Some(listeners) = w.get_mut(&peer_id) {
                             listeners.push((req_id.clone(), opts));
@@ -215,22 +217,42 @@ where
                 }
             },
             MessageBody::Response { body } => match body {
+                // TODO: A responder MUST send a Hash Response message with
+                // hash_count = 0 to indicate that they do not intend to return
+                // any further hashes for the given req_id and they have
+                // concluded the request on their side.
                 ResponseBody::Hash { hashes } => {
-                    let want = self.store.want(&hashes).await?;
-                    if !want.is_empty() {
+                    let wanted_hashes = self.store.want(&hashes).await?;
+                    if !wanted_hashes.is_empty() {
+                        // Define the TTL (how many times the request will be
+                        // forwarded.
+                        //
+                        // NOTE: We may want to set this dynamically in the
+                        // future, either based on user choice or connectivity
+                        // status.
+                        let ttl = 0;
+
+                        // If a hash appears in our list of wanted hashed,
+                        // send a request for the associated post.
+                        let request = Message::post_request(
+                            circuit_id,
+                            req_id,
+                            ttl,
+                            wanted_hashes.to_owned(),
+                        );
+
+                        self.send(peer_id, &request).await?;
+
                         {
-                            let mut mreq = self.requested.write().await;
-                            for hash in &want {
-                                mreq.insert(hash.clone());
+                            // Update the list of requested hashes.
+                            let mut requested_posts = self.requested.write().await;
+                            for hash in &wanted_hashes {
+                                requested_posts.insert(hash.clone());
                             }
                         }
-                        let hreq = Message::HashRequest {
-                            req_id,
-                            ttl: 1,
-                            hashes: want,
-                        };
-                        self.send(peer_id, &hreq).await?;
                     }
+
+                    // TODO: If hash_count == 0, remove the request.
                 }
                 ResponseBody::Post { posts } => {
                     // Iterate over the encoded posts.
@@ -253,17 +275,15 @@ where
 
                         let post_hash = post.hash()?;
 
-                        {
-                            let mut message_requests = self.requested.write().await;
-                            // Check if this post was previously requested.
-                            if !message_requests.contains(&post_hash) {
-                                // Skip this post if it was not requested.
-                                continue;
-                            }
-                            // Remove the post hash from the list of requested
-                            // messages.
-                            message_requests.remove(&post_hash);
+                        let mut requested_posts = self.requested.write().await;
+                        // Check if this post was previously requested.
+                        if !requested_posts.contains(&post_hash) {
+                            // Skip this post if it was not requested.
+                            continue;
                         }
+                        // Remove the post hash from the list of requested
+                        // posts.
+                        requested_posts.remove(&post_hash);
 
                         self.store.insert_post(&post).await?;
                     }
