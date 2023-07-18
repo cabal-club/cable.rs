@@ -10,11 +10,11 @@ use async_std::{
     task,
 };
 use cable::{
-    constants::{HASH_RESPONSE, NO_CIRCUIT, TEXT_POST},
+    constants::NO_CIRCUIT,
     error::Error,
-    message::{Message, MessageBody, MessageHeader, ResponseBody},
-    post::{Post, PostBody, PostHeader},
-    Hash, ReqId,
+    message::{Message, MessageBody, MessageHeader, RequestBody, ResponseBody},
+    post::Post,
+    Channel, ChannelOptions, Hash, ReqId,
 };
 use desert::{FromBytes, ToBytes};
 use futures::io::{AsyncRead, AsyncWrite};
@@ -23,7 +23,6 @@ use length_prefixed_stream::{decode_with_options, DecodeOptions};
 use crate::{
     store::{GetPostOptions, Store},
     stream::PostStream,
-    ChannelOptions,
 };
 
 pub type PeerId = usize;
@@ -33,11 +32,17 @@ pub type PeerId = usize;
 pub struct CableManager<S: Store> {
     /// A cable store.
     pub store: S,
+    /// Peers with whom communication is underway.
     peers: Arc<RwLock<HashMap<PeerId, channel::Sender<Message>>>>,
+    /// The most recently assigned peer ID.
     last_peer_id: Arc<RwLock<PeerId>>,
+    /// The most recently assigned request ID.
     last_req_id: Arc<RwLock<u32>>,
+    /// Peer requests.
     listening: Arc<RwLock<HashMap<PeerId, Vec<(ReqId, ChannelOptions)>>>>,
+    /// Local requests.
     requested: Arc<RwLock<HashSet<Hash>>>,
+    /// Outgoing requests which have not yet been concluded.
     open_requests: Arc<RwLock<HashMap<u32, Message>>>,
 }
 
@@ -70,11 +75,11 @@ where
     ) -> Result<(), Error> {
         let public_key = self.get_public_key().await?;
         let signature = [0; 64];
-        let links = self.get_links(channel).await?;
+        let channel = channel.into();
+        let links = vec![self.get_link(&channel).await?];
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_secs();
-        let channel = channel.into();
         let text = text.into();
 
         // Construct a new text post.
@@ -97,15 +102,16 @@ where
         for (peer_id, reqs) in self.listening.read().await.iter() {
             // Iterate over peer requests.
             for (req_id, opts) in reqs {
-                let n_limit = opts.limit.min(4096);
+                let limit = opts.limit.min(4096);
                 let mut hashes = vec![];
+
                 {
                     // Get all posts matching the request parameters.
                     let mut stream = self.store.get_post_hashes(&opts).await?;
                     while let Some(result) = stream.next().await {
                         hashes.push(result?);
                         // Break once the request limit has been reached.
-                        if hashes.len() >= n_limit {
+                        if hashes.len() as u64 >= limit {
                             break;
                         }
                     }
@@ -138,100 +144,136 @@ where
         Ok(())
     }
 
+    /// Handle a request or response message.
     pub async fn handle(&mut self, peer_id: usize, msg: &Message) -> Result<(), Error> {
-        // todo: forward requests
-        match msg {
-            Message::ChannelTimeRangeRequest {
-                req_id,
-                channel,
-                time_start,
-                time_end,
-                limit,
-                ..
-            } => {
-                let opts = GetPostOptions {
-                    channel: channel.to_vec(),
-                    time_start: *time_start,
-                    time_end: *time_end,
-                    limit: *limit,
-                };
-                let n_limit = (*limit).min(4096);
-                let mut hashes = vec![];
-                {
+        let MessageHeader {
+            msg_type,
+            circuit_id,
+            req_id,
+        } = msg.header;
+
+        // TODO: Forward requests.
+        match msg.body {
+            MessageBody::Request { ttl, body } => match body {
+                RequestBody::Post { hashes } => {
+                    let posts = self.store.get_post_payloads(&hashes).await?;
+                    let response = Message::post_response(circuit_id, req_id, posts);
+
+                    self.send(peer_id, &response).await?
+                }
+                RequestBody::Cancel { cancel_id } => {
+                    todo!()
+                }
+                RequestBody::ChannelTimeRange {
+                    channel,
+                    time_start,
+                    time_end,
+                    limit,
+                } => {
+                    // TODO: Consider simply using `ChannelOptions` (clearer).
+                    let opts = GetPostOptions {
+                        channel,
+                        time_start,
+                        time_end,
+                        limit,
+                    };
+                    let n_limit = (limit).min(4096);
+
+                    let mut hashes = vec![];
+                    // Create a stream of post hashes matching the given criteria.
                     let mut stream = self.store.get_post_hashes(&opts).await?;
+                    // Iterate over the hashes in the stream.
                     while let Some(result) = stream.next().await {
                         hashes.push(result?);
-                        if hashes.len() >= n_limit {
+                        // Break out of the loop once the requested limit is met.
+                        if hashes.len() as u64 >= n_limit {
                             break;
                         }
                     }
-                }
-                let response = Message::HashResponse {
-                    req_id: *req_id,
-                    hashes,
-                };
-                {
-                    let mut w = self.listening.write().await;
-                    if let Some(listeners) = w.get_mut(&peer_id) {
-                        listeners.push((req_id.clone(), opts));
-                    } else {
-                        w.insert(peer_id, vec![(req_id.clone(), opts)]);
-                    }
-                }
-                self.send(peer_id, &response).await?;
-            }
-            Message::HashResponse { req_id, hashes } => {
-                let want = self.store.want(hashes).await?;
-                if !want.is_empty() {
-                    {
-                        let mut mreq = self.requested.write().await;
-                        for hash in &want {
-                            mreq.insert(hash.clone());
+
+                    let response = Message::hash_response(circuit_id, req_id, hashes);
+
+                    // Add the peer and request ID to the request tracker if
+                    // the end time has been set to 0 (i.e. keep this request
+                    // alive and send new messages as they become available).
+                    if time_end == 0 {
+                        let mut w = self.listening.write().await;
+                        if let Some(listeners) = w.get_mut(&peer_id) {
+                            listeners.push((req_id.clone(), opts));
+                        } else {
+                            w.insert(peer_id, vec![(req_id.clone(), opts)]);
                         }
                     }
-                    let hreq = Message::HashRequest {
-                        req_id: *req_id,
-                        ttl: 1,
-                        hashes: want,
-                    };
-                    self.send(peer_id, &hreq).await?;
+
+                    self.send(peer_id, &response).await?;
                 }
-            }
-            Message::HashRequest {
-                req_id,
-                ttl: _,
-                hashes,
-            } => {
-                let response = Message::DataResponse {
-                    req_id: *req_id,
-                    data: self.store.get_data(hashes).await?,
-                };
-                self.send(peer_id, &response).await?
-            }
-            Message::DataResponse { req_id: _, data } => {
-                for buf in data {
-                    if !Post::verify(&buf) {
-                        continue;
+                RequestBody::ChannelState { channel, future } => {
+                    todo!()
+                }
+                RequestBody::ChannelList { skip, limit } => {
+                    todo!()
+                }
+            },
+            MessageBody::Response { body } => match body {
+                ResponseBody::Hash { hashes } => {
+                    let want = self.store.want(&hashes).await?;
+                    if !want.is_empty() {
+                        {
+                            let mut mreq = self.requested.write().await;
+                            for hash in &want {
+                                mreq.insert(hash.clone());
+                            }
+                        }
+                        let hreq = Message::HashRequest {
+                            req_id,
+                            ttl: 1,
+                            hashes: want,
+                        };
+                        self.send(peer_id, &hreq).await?;
                     }
-                    let (s, post) = Post::from_bytes(&buf)?;
-                    if s != buf.len() {
-                        continue;
-                    }
-                    let h = post.hash()?;
-                    {
-                        let mut mreq = self.requested.write().await;
-                        if !mreq.contains(&h) {
+                }
+                ResponseBody::Post { posts } => {
+                    // Iterate over the encoded posts.
+                    for post_bytes in posts {
+                        // Verify the post signature.
+                        if !Post::verify(&post_bytes) {
+                            // Skip to the next post, bypassing the rest of the
+                            // code in this `for` loop.
                             continue;
-                        } // didn't request this response
-                        mreq.remove(&h);
+                        }
+
+                        // Deserialize the post.
+                        let (s, post) = Post::from_bytes(&post_bytes)?;
+
+                        // Ensure the number of processed bytes matches the
+                        // received amount.
+                        if s != post_bytes.len() {
+                            continue;
+                        }
+
+                        let post_hash = post.hash()?;
+
+                        {
+                            let mut message_requests = self.requested.write().await;
+                            // Check if this post was previously requested.
+                            if !message_requests.contains(&post_hash) {
+                                // Skip this post if it was not requested.
+                                continue;
+                            }
+                            // Remove the post hash from the list of requested
+                            // messages.
+                            message_requests.remove(&post_hash);
+                        }
+
+                        self.store.insert_post(&post).await?;
                     }
-                    self.store.insert_post(&post).await?;
                 }
-            }
-            _ => {
-                //println!["other message type: todo"];
-            }
+                ResponseBody::ChannelList { channels } => {
+                    todo!()
+                }
+            },
         }
+
         Ok(())
     }
 
@@ -298,7 +340,7 @@ where
     }
 
     // TODO: Convert to `get_links()`?
-    pub async fn get_link(&mut self, channel: &[u8]) -> Result<[u8; 32], Error> {
+    pub async fn get_link(&mut self, channel: &Channel) -> Result<Hash, Error> {
         let link = self.store.get_latest_hash(channel).await?;
         Ok(link)
     }
@@ -315,6 +357,10 @@ where
         Ok(sk)
     }
 
+    /// Listen for incoming peer messages and respond with locally-generated
+    /// messages.
+    ///
+    /// Decode each received message and pass it off to the handler.
     pub async fn listen<T>(&self, mut stream: T) -> Result<(), Error>
     where
         T: AsyncRead + AsyncWrite + Clone + Unpin + Send + Sync + 'static,
@@ -337,7 +383,7 @@ where
             let mut stream_c = stream.clone();
 
             task::spawn(async move {
-                // Listen for incoming messages (local).
+                // Listen for incoming locally-generated messages.
                 while let Ok(msg) = recv.recv().await {
                     // Write the message to the stream.
                     stream_c.write_all(&msg.to_bytes()?).await?;
@@ -370,7 +416,11 @@ where
             });
         }
 
+        // Continue reading and writing to the peer stream until the stream is
+        // closed (either intentionally or because of an error).
         write_to_stream_res.await?;
+
+        // Remove the peer from the list of active peers.
         self.peers.write().await.remove(&peer_id);
 
         Ok(())
