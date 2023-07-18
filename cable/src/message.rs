@@ -69,6 +69,17 @@ impl Message {
 
         Message::new(header, body)
     }
+
+    /// Construct a post request `Message` with the given parameters.
+    pub fn post_request(circuit_id: CircuitId, req_id: ReqId, ttl: u8, hashes: Vec<Hash>) -> Self {
+        let header = MessageHeader::new(POST_REQUEST, circuit_id, req_id);
+        let body = MessageBody::Request {
+            ttl,
+            body: RequestBody::Post { hashes },
+        };
+
+        Message::new(header, body)
+    }
 }
 
 #[derive(Clone, Debug)]
