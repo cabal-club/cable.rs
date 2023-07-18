@@ -25,6 +25,14 @@ use crate::{
     stream::PostStream,
 };
 
+// Define the TTL (how many times a request will be
+// forwarded.
+//
+// NOTE: We may want to set this dynamically in the
+// future, either based on user choice or connectivity
+// status.
+const TTL: u8 = 0;
+
 pub type PeerId = usize;
 
 /// The manager for a single cable instance.
@@ -224,20 +232,12 @@ where
                 ResponseBody::Hash { hashes } => {
                     let wanted_hashes = self.store.want(&hashes).await?;
                     if !wanted_hashes.is_empty() {
-                        // Define the TTL (how many times the request will be
-                        // forwarded.
-                        //
-                        // NOTE: We may want to set this dynamically in the
-                        // future, either based on user choice or connectivity
-                        // status.
-                        let ttl = 0;
-
                         // If a hash appears in our list of wanted hashed,
                         // send a request for the associated post.
                         let request = Message::post_request(
                             circuit_id,
                             req_id,
-                            ttl,
+                            TTL,
                             wanted_hashes.to_owned(),
                         );
 
@@ -327,23 +327,25 @@ where
 
     pub async fn open_channel(
         &mut self,
-        options: &ChannelOptions,
+        channel_opts: &ChannelOptions,
     ) -> Result<PostStream<'_>, Error> {
         let (req_id, req_id_bytes) = self.new_req_id().await?;
 
-        let m = Message::ChannelTimeRangeRequest {
-            req_id: req_id_bytes,
-            ttl: 1,
-            channel: options.channel,
-            time_start: options.time_start,
-            time_end: options.time_end,
-            limit: options.limit,
-        };
+        let request = Message::channel_time_range_request(
+            NO_CIRCUIT,
+            req_id_bytes,
+            TTL,
+            channel_opts.to_owned(),
+        );
 
-        self.open_requests.write().await.insert(req_id, m.clone());
-        self.broadcast(&m).await?;
+        self.open_requests
+            .write()
+            .await
+            .insert(req_id, request.clone());
 
-        Ok(self.store.get_posts_live(options).await?)
+        self.broadcast(&request).await?;
+
+        Ok(self.store.get_posts_live(channel_opts).await?)
     }
 
     pub async fn close_channel(&self, _channel: &[u8]) {
