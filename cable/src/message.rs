@@ -59,6 +59,16 @@ impl Message {
 
         Message::new(header, body)
     }
+
+    /// Construct a post response `Message` with the given parameters.
+    pub fn post_response(circuit_id: CircuitId, req_id: ReqId, posts: Vec<EncodedPost>) -> Self {
+        let header = MessageHeader::new(HASH_RESPONSE, circuit_id, req_id);
+        let body = MessageBody::Response {
+            body: ResponseBody::Post { posts },
+        };
+
+        Message::new(header, body)
+    }
 }
 
 #[derive(Clone, Debug)]
