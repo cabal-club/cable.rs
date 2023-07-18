@@ -15,7 +15,7 @@ use crate::{
     },
     error::{CableErrorKind, Error},
     post::EncodedPost,
-    Channel, CircuitId, Hash, ReqId, Timestamp,
+    Channel, ChannelOptions, CircuitId, Hash, ReqId, Timestamp,
 };
 
 /// A complete message including header and body values.
@@ -48,6 +48,34 @@ impl Message {
             },
             MessageBody::Unrecognized { msg_type } => *msg_type,
         }
+    }
+
+    /// Construct a channel time range request `Message` with the given parameters.
+    pub fn channel_time_range_request(
+        circuit_id: CircuitId,
+        req_id: ReqId,
+        ttl: u8,
+        channel_opts: ChannelOptions,
+    ) -> Self {
+        let ChannelOptions {
+            channel,
+            time_start,
+            time_end,
+            limit,
+        } = channel_opts;
+
+        let header = MessageHeader::new(CHANNEL_TIME_RANGE_REQUEST, circuit_id, req_id);
+        let body = MessageBody::Request {
+            ttl,
+            body: RequestBody::ChannelTimeRange {
+                channel,
+                time_start,
+                time_end,
+                limit,
+            },
+        };
+
+        Message::new(header, body)
     }
 
     /// Construct a hash response `Message` with the given parameters.
