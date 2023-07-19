@@ -297,7 +297,9 @@ where
                     }
                 }
                 ResponseBody::ChannelList { channels } => {
-                    todo!()
+                    // TODO: Do we need to take action to conclude the request
+                    // which resulted in this response?
+                    self.store.insert_channels(channels).await?;
                 }
             },
             // Ignore unrecognized message type.
