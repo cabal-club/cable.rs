@@ -50,6 +50,20 @@ impl Message {
         }
     }
 
+    /// Construct a channel list response `Message` with the given parameters.
+    pub fn channel_list_response(
+        circuit_id: CircuitId,
+        req_id: ReqId,
+        channels: Vec<Channel>,
+    ) -> Self {
+        let header = MessageHeader::new(CHANNEL_LIST_RESPONSE, circuit_id, req_id);
+        let body = MessageBody::Response {
+            body: ResponseBody::ChannelList { channels },
+        };
+
+        Message::new(header, body)
+    }
+
     /// Construct a channel time range request `Message` with the given parameters.
     pub fn channel_time_range_request(
         circuit_id: CircuitId,
