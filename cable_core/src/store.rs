@@ -2,7 +2,7 @@
 //! an in-memory implementation of the `Store` trait.
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     convert::TryInto,
 };
 
@@ -24,8 +24,6 @@ use crate::stream::{HashStream, LiveStream, PostStream};
 
 /// A public-private keypair.
 pub type Keypair = ([u8; 32], [u8; 64]);
-/// Post request options (same as `ChannelOptions`).
-pub type GetPostOptions = ChannelOptions;
 
 #[async_trait::async_trait]
 /// Storage trait with methods for storing and retrieving cryptographic
@@ -57,21 +55,27 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
     /// channel.
     async fn get_latest_hash(&mut self, channel: &Channel) -> Result<Hash, Error>;
 
+    /// Insert the given channel into the store.
+    async fn insert_channel(&mut self, channel: &Channel) -> Result<(), Error>;
+
+    /// Retrieve all channels from the store.
+    async fn get_channels<'a>(&'a mut self) -> Result<Vec<Channel>, Error>;
+
     /// Insert the given post into the store.
     async fn insert_post(&mut self, post: &Post) -> Result<(), Error>;
 
     /// Retrieve all posts matching the parameters defined by the given
-    /// `GetPostOptions`.
-    async fn get_posts<'a>(&'a mut self, opts: &GetPostOptions) -> Result<PostStream, Error>;
+    /// `ChannelOptions`.
+    async fn get_posts<'a>(&'a mut self, opts: &ChannelOptions) -> Result<PostStream, Error>;
 
     /// Retrieve all posts matching the parameters defined by the given
-    /// `GetPostOptions` and continue to return new messages as they become
+    /// `ChannelOptions` and continue to return new messages as they become
     /// available (stream remains active).
-    async fn get_posts_live<'a>(&'a mut self, opts: &GetPostOptions) -> Result<PostStream, Error>;
+    async fn get_posts_live<'a>(&'a mut self, opts: &ChannelOptions) -> Result<PostStream, Error>;
 
     /// Retrieve the hashes of all posts matching the parameters defined by the
-    /// given `GetPostOptions`.
-    async fn get_post_hashes<'a>(&'a mut self, opts: &GetPostOptions) -> Result<HashStream, Error>;
+    /// given `ChannelOptions`.
+    async fn get_post_hashes<'a>(&'a mut self, opts: &ChannelOptions) -> Result<HashStream, Error>;
 
     /// Retrieve the hashes of all posts representing the subset of the given
     /// hashes for which post data is not available locally (ie. the hashes of
@@ -87,6 +91,8 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
 /// An in-memory store containing a keypair and post data.
 pub struct MemoryStore {
     keypair: Keypair,
+    /// All channels in the store.
+    channels: Arc<RwLock<BTreeSet<Channel>>>,
     /// All posts in the store divided according to channel (the outer key)
     /// and indexed by timestamp (the inner key).
     posts: Arc<RwLock<HashMap<Channel, BTreeMap<u64, Vec<Post>>>>>,
@@ -116,6 +122,7 @@ impl Default for MemoryStore {
                 pk.as_ref().try_into().unwrap(),
                 sk.as_ref().try_into().unwrap(),
             ),
+            channels: Arc::new(RwLock::new(BTreeSet::new())),
             posts: Arc::new(RwLock::new(HashMap::new())),
             post_hashes: Arc::new(RwLock::new(HashMap::new())),
             post_payloads: Arc::new(RwLock::new(HashMap::new())),
@@ -135,12 +142,27 @@ impl Store for MemoryStore {
 
     async fn set_keypair(&mut self, keypair: Keypair) -> Result<(), Error> {
         self.keypair = keypair;
+
         Ok(())
     }
 
     async fn get_latest_hash(&mut self, _channel: &Channel) -> Result<Hash, Error> {
         // TODO: Return the latest post hash, if available, instead of zeros.
         Ok([0; 32])
+    }
+
+    async fn insert_channel(&mut self, channel: &Channel) -> Result<(), Error> {
+        // Open the channel store for writing.
+        let mut channels = self.channels.write().await;
+        channels.insert(channel.to_owned());
+
+        Ok(())
+    }
+
+    async fn get_channels(&mut self) -> Result<Vec<Channel>, Error> {
+        let channels = self.channels.read().await.iter().cloned().collect();
+
+        Ok(channels)
     }
 
     async fn insert_post(&mut self, post: &Post) -> Result<(), Error> {
@@ -246,7 +268,7 @@ impl Store for MemoryStore {
         Ok(())
     }
 
-    async fn get_posts(&mut self, opts: &GetPostOptions) -> Result<PostStream, Error> {
+    async fn get_posts(&mut self, opts: &ChannelOptions) -> Result<PostStream, Error> {
         let posts = self
             .posts
             .write()
@@ -262,7 +284,7 @@ impl Store for MemoryStore {
         Ok(Box::new(stream::from_iter(posts.into_iter())))
     }
 
-    async fn get_posts_live(&mut self, opts: &GetPostOptions) -> Result<PostStream, Error> {
+    async fn get_posts_live(&mut self, opts: &ChannelOptions) -> Result<PostStream, Error> {
         let live_stream = {
             let mut live_streams = self.live_streams.write().await;
 
@@ -314,7 +336,7 @@ impl Store for MemoryStore {
         Ok(Box::new(post_stream.merge(live_stream)))
     }
 
-    async fn get_post_hashes(&mut self, opts: &GetPostOptions) -> Result<HashStream, Error> {
+    async fn get_post_hashes(&mut self, opts: &ChannelOptions) -> Result<HashStream, Error> {
         let start = opts.time_start;
         let end = opts.time_end;
         let empty = self.empty_hash_bt.range(..);
