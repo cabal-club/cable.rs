@@ -115,7 +115,7 @@ where
 
                 {
                     // Get all posts matching the request parameters.
-                    let mut stream = self.store.get_post_hashes(&opts).await?;
+                    let mut stream = self.store.get_post_hashes(opts).await?;
                     while let Some(result) = stream.next().await {
                         hashes.push(result?);
                         // Break once the request limit has been reached.
@@ -164,7 +164,7 @@ where
         match &msg.body {
             MessageBody::Request { ttl, body } => match body {
                 RequestBody::Post { hashes } => {
-                    let posts = self.store.get_post_payloads(&hashes).await?;
+                    let posts = self.store.get_post_payloads(hashes).await?;
                     let response = Message::post_response(circuit_id, req_id, posts);
 
                     self.send(peer_id, &response).await?
@@ -209,9 +209,9 @@ where
                     if *time_end == 0 {
                         let mut w = self.listening.write().await;
                         if let Some(listeners) = w.get_mut(&peer_id) {
-                            listeners.push((req_id.clone(), opts));
+                            listeners.push((req_id, opts));
                         } else {
-                            w.insert(peer_id, vec![(req_id.clone(), opts)]);
+                            w.insert(peer_id, vec![(req_id, opts)]);
                         }
                     }
 
@@ -230,7 +230,7 @@ where
                 // any further hashes for the given req_id and they have
                 // concluded the request on their side.
                 ResponseBody::Hash { hashes } => {
-                    let wanted_hashes = self.store.want(&hashes).await?;
+                    let wanted_hashes = self.store.want(hashes).await?;
                     if !wanted_hashes.is_empty() {
                         // If a hash appears in our list of wanted hashed,
                         // send a request for the associated post.
@@ -247,7 +247,7 @@ where
                             // Update the list of requested hashes.
                             let mut requested_posts = self.requested.write().await;
                             for hash in &wanted_hashes {
-                                requested_posts.insert(hash.clone());
+                                requested_posts.insert(*hash);
                             }
                         }
                     }
@@ -258,14 +258,14 @@ where
                     // Iterate over the encoded posts.
                     for post_bytes in posts {
                         // Verify the post signature.
-                        if !Post::verify(&post_bytes) {
+                        if !Post::verify(post_bytes) {
                             // Skip to the next post, bypassing the rest of the
                             // code in this `for` loop.
                             continue;
                         }
 
                         // Deserialize the post.
-                        let (s, post) = Post::from_bytes(&post_bytes)?;
+                        let (s, post) = Post::from_bytes(post_bytes)?;
 
                         // Ensure the number of processed bytes matches the
                         // received amount.
@@ -347,7 +347,7 @@ where
 
         self.broadcast(&request).await?;
 
-        Ok(self.store.get_posts_live(channel_opts).await?)
+        self.store.get_posts_live(channel_opts).await
     }
 
     pub async fn close_channel(&self, _channel: &[u8]) {
@@ -414,8 +414,7 @@ where
                 }
 
                 // Type inference fails without binding concretely to `Result`.
-                let res: Result<(), Error> = Ok(());
-                res
+                Result::<(), Error>::Ok(())
             })
         };
 
