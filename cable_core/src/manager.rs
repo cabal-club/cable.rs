@@ -20,10 +20,7 @@ use desert::{FromBytes, ToBytes};
 use futures::io::{AsyncRead, AsyncWrite};
 use length_prefixed_stream::{decode_with_options, DecodeOptions};
 
-use crate::{
-    store::{GetPostOptions, Store},
-    stream::PostStream,
-};
+use crate::{store::Store, stream::PostStream};
 
 // Define the TTL (how many times a request will be
 // forwarded.
@@ -46,11 +43,15 @@ pub struct CableManager<S: Store> {
     last_peer_id: Arc<RwLock<PeerId>>,
     /// The most recently assigned request ID.
     last_req_id: Arc<RwLock<u32>>,
-    /// Peer requests.
+    /// Active inbound requests to which the local peer is listening and
+    /// responding.
+    // TODO: Consider renaming `inbound_requests`, `active_requests` or
+    // `remote_requests`.
     listening: Arc<RwLock<HashMap<PeerId, Vec<(ReqId, ChannelOptions)>>>>,
-    /// Local requests.
+    /// Post hashes which have been requested from remote peers by the local peer.
     requested: Arc<RwLock<HashSet<Hash>>>,
-    /// Outgoing requests which have not yet been concluded.
+    /// Active outbound requests authored by the local peer.
+    // TODO: Consider renaming `outbound_requests`.
     open_requests: Arc<RwLock<HashMap<u32, Message>>>,
 }
 
@@ -178,8 +179,7 @@ where
                     time_end,
                     limit,
                 } => {
-                    // TODO: Consider simply using `ChannelOptions` (clearer).
-                    let opts = GetPostOptions {
+                    let opts = ChannelOptions {
                         channel: channel.to_string(),
                         time_start: *time_start,
                         time_end: *time_end,
@@ -221,7 +221,15 @@ where
                     todo!()
                 }
                 RequestBody::ChannelList { skip, limit } => {
-                    todo!()
+                    let mut all_channels = self.store.get_channels().await?;
+                    let n_limit = (*limit).min(4096);
+                    // Drain the channels matching the given range.
+                    let channels = all_channels
+                        .drain(*skip as usize..n_limit as usize)
+                        .collect();
+                    let response = Message::channel_list_response(circuit_id, req_id, channels);
+
+                    self.send(peer_id, &response).await?
                 }
             },
             MessageBody::Response { body } => match body {
@@ -327,6 +335,8 @@ where
         Ok(peer_id)
     }
 
+    /// Create a channel time range request matching the given channel
+    /// parameters and broadcast it to all peers, listening for responses.
     pub async fn open_channel(
         &mut self,
         channel_opts: &ChannelOptions,
