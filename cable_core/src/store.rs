@@ -94,7 +94,7 @@ pub struct MemoryStore {
     /// key) and indexed by timestamp (the inner key).
     post_hashes: Arc<RwLock<HashMap<Channel, BTreeMap<u64, Vec<Hash>>>>>,
     /// Binary payloads for all posts in the store, indexed by the post hash.
-    data: Arc<RwLock<HashMap<Hash, Payload>>>,
+    post_payloads: Arc<RwLock<HashMap<Hash, Payload>>>,
     /// An empty `BTreeMap` of posts, indexed by timestamp.
     empty_post_bt: BTreeMap<u64, Vec<Post>>,
     /// An empty `BTreeMap` of post hashes, indexed by timestamp.
@@ -118,7 +118,7 @@ impl Default for MemoryStore {
             ),
             posts: Arc::new(RwLock::new(HashMap::new())),
             post_hashes: Arc::new(RwLock::new(HashMap::new())),
-            data: Arc::new(RwLock::new(HashMap::new())),
+            post_payloads: Arc::new(RwLock::new(HashMap::new())),
             empty_post_bt: BTreeMap::new(),
             empty_hash_bt: BTreeMap::new(),
             live_streams: Arc::new(RwLock::new(HashMap::new())),
@@ -201,7 +201,10 @@ impl Store for MemoryStore {
 
                             // Insert the binary payload of the post into the
                             // `HashMap` of post data, indexed by the hash.
-                            self.data.write().await.insert(hash, post.to_bytes()?);
+                            self.post_payloads
+                                .write()
+                                .await
+                                .insert(hash, post.to_bytes()?);
                         }
                     } else {
                         // No hashes have previously been stored for the
@@ -219,7 +222,10 @@ impl Store for MemoryStore {
 
                         // Insert the binary payload of the post into the
                         // `HashMap` of post data, indexed by the hash.
-                        self.data.write().await.insert(hash, post.to_bytes()?);
+                        self.post_payloads
+                            .write()
+                            .await
+                            .insert(hash, post.to_bytes()?);
                     }
                 }
                 // If we have open live streams matching the channel to which
@@ -334,21 +340,21 @@ impl Store for MemoryStore {
     }
 
     async fn want(&mut self, hashes: &[Hash]) -> Result<Vec<Hash>, Error> {
-        let data = self.data.read().await;
+        let post_payloads = self.post_payloads.read().await;
 
         Ok(hashes
             .iter()
-            .filter(|hash| !data.contains_key(&(*hash).clone()))
+            .filter(|hash| !post_payloads.contains_key(&(*hash).clone()))
             .cloned()
             .collect())
     }
 
     async fn get_post_payloads(&mut self, hashes: &[Hash]) -> Result<Vec<EncodedPost>, Error> {
-        let data = self.data.read().await;
+        let post_payloads = self.post_payloads.read().await;
 
         Ok(hashes
             .iter()
-            .filter_map(|hash| data.get(hash))
+            .filter_map(|hash| post_payloads.get(hash))
             .cloned()
             .collect())
     }
