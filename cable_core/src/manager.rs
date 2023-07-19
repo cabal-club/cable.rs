@@ -292,6 +292,8 @@ where
                     todo!()
                 }
             },
+            // Ignore unrecognized message type.
+            MessageBody::Unrecognized { .. } => (),
         }
 
         Ok(())
@@ -411,7 +413,9 @@ where
                     stream_c.write_all(&msg.to_bytes()?).await?;
                 }
 
-                Ok(())
+                // Type inference fails without binding concretely to `Result`.
+                let res: Result<(), Error> = Ok(());
+                res
             })
         };
 
@@ -431,9 +435,9 @@ where
             let mut this = self.clone();
             task::spawn(async move {
                 // Handle the received message.
-                if let Err(_e) = this.handle(peer_id, &msg).await {
-                    // TODO: Report the error.
-                    //eprintln!["{}", e];
+                if let Err(e) = this.handle(peer_id, &msg).await {
+                    // TODO: Consider a better way to report.
+                    eprintln!["{}", e];
                 }
             });
         }
