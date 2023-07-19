@@ -50,9 +50,9 @@ pub struct CableManager<S: Store> {
     listening: Arc<RwLock<HashMap<PeerId, Vec<(ReqId, ChannelOptions)>>>>,
     /// Post hashes which have been requested from remote peers by the local peer.
     requested: Arc<RwLock<HashSet<Hash>>>,
-    /// Active outbound requests authored by the local peer.
+    /// Active outbound requests (includes requests of local and remote origin).
     // TODO: Consider renaming `outbound_requests`.
-    open_requests: Arc<RwLock<HashMap<u32, Message>>>,
+    open_requests: Arc<RwLock<HashMap<ReqId, Message>>>,
 }
 
 impl<S> CableManager<S>
@@ -171,7 +171,12 @@ where
                     self.send(peer_id, &response).await?
                 }
                 RequestBody::Cancel { cancel_id } => {
-                    todo!()
+                    // Remove the request from the list of open requests.
+                    // The associated message will no longer be sent to peers.
+                    self.open_requests.write().await.remove(cancel_id);
+
+                    // TODO: Must be forwarded to all peers to whom the
+                    // original request was forwarded.
                 }
                 RequestBody::ChannelTimeRange {
                     channel,
@@ -355,7 +360,7 @@ where
         self.open_requests
             .write()
             .await
-            .insert(req_id, request.clone());
+            .insert(req_id_bytes, request.clone());
 
         self.broadcast(&request).await?;
 
