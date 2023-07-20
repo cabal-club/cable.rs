@@ -10,9 +10,7 @@ use async_std::{
     task,
     task::{Context, Poll, Waker},
 };
-use cable::{error::Error, post::Post, Hash};
-
-use crate::ChannelOptions;
+use cable::{error::Error, post::Post, ChannelOptions, Hash};
 
 /// An asynchronous stream of posts.
 pub type PostStream<'a> = Box<dyn Stream<Item = Result<Post, Error>> + Unpin + Send + 'a>;
@@ -33,7 +31,7 @@ pub struct LiveStream {
 impl LiveStream {
     /// Create a new `LiveStream` with the given channel options and streams.
     pub fn new(id: usize, options: ChannelOptions, live_streams: Arc<RwLock<Vec<Self>>>) -> Self {
-        let (sender, receiver) = channel::bounded(options.limit);
+        let (sender, receiver) = channel::bounded(options.limit as usize);
 
         Self {
             id,

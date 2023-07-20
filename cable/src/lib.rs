@@ -1,5 +1,6 @@
 #![doc=include_str!("../README.md")]
 
+pub mod constants;
 pub mod error;
 pub mod message;
 pub mod post;
@@ -31,7 +32,7 @@ pub struct ChannelOptions {
     pub channel: Channel,
     pub time_start: Timestamp,
     pub time_end: Timestamp,
-    pub limit: usize,
+    pub limit: u64,
 }
 
 #[derive(Clone, Debug, PartialEq)]

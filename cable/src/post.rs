@@ -14,19 +14,10 @@ use sodiumoxide::crypto::{
 };
 
 use crate::{
+    constants::{DELETE_POST, INFO_POST, JOIN_POST, LEAVE_POST, TEXT_POST, TOPIC_POST},
     error::{CableErrorKind, Error},
     Channel, Hash, Text, Topic, UserInfo,
 };
-
-/// The data of an encoded post.
-pub type EncodedPost = Vec<u8>;
-
-/// A complete post including header and body values.
-#[derive(Clone, Debug)]
-pub struct Post {
-    pub header: PostHeader,
-    pub body: PostBody,
-}
 
 #[derive(Clone, Debug)]
 /// The header of a post.
@@ -107,9 +98,31 @@ pub enum PostBody {
     Unrecognized { post_type: u64 },
 }
 
+/// A complete post including header and body values.
+#[derive(Clone, Debug)]
+pub struct Post {
+    pub header: PostHeader,
+    pub body: PostBody,
+}
+
 impl Post {
-    /// Convenience method to construct a `Post` from a header and body.
+    /// Construct a `Post` from a header and body.
     pub fn new(header: PostHeader, body: PostBody) -> Self {
+        Post { header, body }
+    }
+
+    /// Construct a text `Post` with the given parameters.
+    pub fn text(
+        public_key: [u8; 32],
+        signature: [u8; 64],
+        links: Vec<Hash>,
+        timestamp: u64,
+        channel: Channel,
+        text: Text,
+    ) -> Self {
+        let header = PostHeader::new(public_key, signature, links, TEXT_POST, timestamp);
+        let body = PostBody::Text { channel, text };
+
         Post { header, body }
     }
 
@@ -161,12 +174,12 @@ impl Post {
     /// Return the numeric type identifier for the post.
     pub fn post_type(&self) -> u64 {
         match &self.body {
-            PostBody::Text { .. } => 0,
-            PostBody::Delete { .. } => 1,
-            PostBody::Info { .. } => 2,
-            PostBody::Topic { .. } => 3,
-            PostBody::Join { .. } => 4,
-            PostBody::Leave { .. } => 5,
+            PostBody::Text { .. } => TEXT_POST,
+            PostBody::Delete { .. } => DELETE_POST,
+            PostBody::Info { .. } => INFO_POST,
+            PostBody::Topic { .. } => TOPIC_POST,
+            PostBody::Join { .. } => JOIN_POST,
+            PostBody::Leave { .. } => LEAVE_POST,
             PostBody::Unrecognized { post_type } => *post_type,
         }
     }
@@ -390,8 +403,7 @@ impl FromBytes for Post {
 
         // Read post body field bytes.
         let body = match post_type {
-            // Text.
-            0 => {
+            TEXT_POST => {
                 // Read the channel length byte and increment the offset.
                 let (s, channel_len) = varint::decode(&buf[offset..])?;
                 offset += s;
@@ -414,8 +426,7 @@ impl FromBytes for Post {
 
                 PostBody::Text { channel, text }
             }
-            // Delete.
-            1 => {
+            DELETE_POST => {
                 // Read the number of hashes byte and increment the offset.
                 let (s, num_hashes) = varint::decode(&buf[offset..])?;
                 offset += s;
@@ -438,8 +449,7 @@ impl FromBytes for Post {
 
                 PostBody::Delete { hashes }
             }
-            // Info.
-            2 => {
+            INFO_POST => {
                 // Create an empty vector to store key-value pairs.
                 let mut info: Vec<UserInfo> = Vec::new();
 
@@ -481,8 +491,7 @@ impl FromBytes for Post {
 
                 PostBody::Info { info }
             }
-            // Topic.
-            3 => {
+            TOPIC_POST => {
                 // Read the channel length byte and increment the offset.
                 let (s, channel_len) = varint::decode(&buf[offset..])?;
                 offset += s;
@@ -508,8 +517,7 @@ impl FromBytes for Post {
 
                 PostBody::Topic { channel, topic }
             }
-            // Join.
-            4 => {
+            JOIN_POST => {
                 // Read the channel length byte and increment the offset.
                 let (s, channel_len) = varint::decode(&buf[offset..])?;
                 offset += s;
@@ -524,8 +532,7 @@ impl FromBytes for Post {
 
                 PostBody::Join { channel }
             }
-            // Leave.
-            5 => {
+            LEAVE_POST => {
                 // Read the channel length byte and increment the offset.
                 let (s, channel_len) = varint::decode(&buf[offset..])?;
                 offset += s;
@@ -605,7 +612,10 @@ impl CountBytes for Post {
 
 #[cfg(test)]
 mod test {
-    use super::{Error, FromBytes, Hash, Post, PostBody, PostHeader, ToBytes, UserInfo};
+    use super::{
+        Error, FromBytes, Hash, Post, PostBody, PostHeader, ToBytes, UserInfo, DELETE_POST,
+        INFO_POST, JOIN_POST, LEAVE_POST, TEXT_POST, TOPIC_POST,
+    };
 
     use hex::FromHex;
 
@@ -639,7 +649,7 @@ mod test {
         let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let signature = <[u8; 64]>::from_hex("64425f10fa34c1e14b6101491772d3c5f15f720a952dd56c27d5ad52f61f695130ce286de73e332612b36242339b61c9e12397f5dcc94c79055c7e1cb1dbfb08")?;
         let links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
-        let post_type = 4;
+        let post_type = JOIN_POST;
         let timestamp = 80;
 
         // Construct a new post header.
@@ -676,7 +686,7 @@ mod test {
         let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let signature = <[u8; 64]>::from_hex("abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805")?;
         let links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
-        let post_type = 5;
+        let post_type = LEAVE_POST;
         let timestamp = 80;
 
         let header = PostHeader::new(public_key, signature, links, post_type, timestamp);
@@ -703,7 +713,7 @@ mod test {
         let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let signature = <[u8; 64]>::from_hex("6725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05")?;
         let links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
-        let post_type = 0;
+        let post_type = TEXT_POST;
         let timestamp = 80;
 
         // Construct a new post header.
@@ -735,7 +745,7 @@ mod test {
         let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let signature = <[u8; 64]>::from_hex("6725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05")?;
         let links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
-        let post_type = 0;
+        let post_type = TEXT_POST;
         let timestamp = 80;
 
         // Construct a new post header.
@@ -774,7 +784,7 @@ mod test {
         let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let signature = <[u8; 64]>::from_hex("affe77e3b3156cda7feea042269bb7e93f5031662c70610d37baa69132b4150c18d67cb2ac24fb0f9be0a6516e53ba2f3bbc5bd8e7a1bff64d9c78ce0c2e4205")?;
         let links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
-        let post_type = 1;
+        let post_type = DELETE_POST;
         let timestamp = 80;
 
         // Construct a new post header.
@@ -823,7 +833,7 @@ mod test {
         let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let signature = <[u8; 64]>::from_hex("4ccb1c0063ef09a200e031ee89d874bcc99f3e6fd8fd667f5e28f4dbcf4b7de6bb1ce37d5f01cc055a7b70cef175d30feeb34531db98c91fa8b3fa4d7c5fd307")?;
         let links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
-        let post_type = 2;
+        let post_type = INFO_POST;
         let timestamp = 80;
 
         // Construct a new post header.
@@ -865,7 +875,7 @@ mod test {
         let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let signature = <[u8; 64]>::from_hex("bf7578e781caee4ca708281645b291a2100c4f2138f0e0ac98bc2b4a414b4ba8dca08285751114b05f131421a1745b648c43b17b05392593237dfacc8dff5208")?;
         let links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
-        let post_type = 3;
+        let post_type = TOPIC_POST;
         let timestamp = 80;
 
         // Construct a new post header.
@@ -907,7 +917,7 @@ mod test {
         let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let signature = <[u8; 64]>::from_hex("64425f10fa34c1e14b6101491772d3c5f15f720a952dd56c27d5ad52f61f695130ce286de73e332612b36242339b61c9e12397f5dcc94c79055c7e1cb1dbfb08")?;
         let links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
-        let post_type = 4;
+        let post_type = JOIN_POST;
         let timestamp = 80;
 
         // Construct a new post header.
@@ -947,7 +957,7 @@ mod test {
         let public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let signature = <[u8; 64]>::from_hex("abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805")?;
         let links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
-        let post_type = 5;
+        let post_type = LEAVE_POST;
         let timestamp = 80;
 
         // Construct a new post header.
@@ -995,7 +1005,7 @@ mod test {
         let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let expected_signature = <[u8; 64]>::from_hex("6725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05")?;
         let expected_links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
-        let expected_post_type = 0;
+        let expected_post_type = TEXT_POST;
         let expected_timestamp = 80;
 
         let PostHeader {
@@ -1042,7 +1052,7 @@ mod test {
         let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let expected_signature = <[u8; 64]>::from_hex("affe77e3b3156cda7feea042269bb7e93f5031662c70610d37baa69132b4150c18d67cb2ac24fb0f9be0a6516e53ba2f3bbc5bd8e7a1bff64d9c78ce0c2e4205")?;
         let expected_links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
-        let expected_post_type = 1;
+        let expected_post_type = DELETE_POST;
         let expected_timestamp = 80;
 
         let PostHeader {
@@ -1099,7 +1109,7 @@ mod test {
         //let expected_signature = <[u8; 64]>::from_hex("f70273779147a3b756407d5660ed2e8e2975abc5ab224fb152aa2bfb3dd331740a66e0718cd580bc94978c1c3cd4524ad8cb2f4cca80df481010c3ef834ac700")?;
         let expected_signature = <[u8; 64]>::from_hex("4ccb1c0063ef09a200e031ee89d874bcc99f3e6fd8fd667f5e28f4dbcf4b7de6bb1ce37d5f01cc055a7b70cef175d30feeb34531db98c91fa8b3fa4d7c5fd307")?;
         let expected_links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
-        let expected_post_type = 2;
+        let expected_post_type = INFO_POST;
         let expected_timestamp = 80;
 
         let PostHeader {
@@ -1146,7 +1156,7 @@ mod test {
         let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let expected_signature = <[u8; 64]>::from_hex("bf7578e781caee4ca708281645b291a2100c4f2138f0e0ac98bc2b4a414b4ba8dca08285751114b05f131421a1745b648c43b17b05392593237dfacc8dff5208")?;
         let expected_links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
-        let expected_post_type = 3;
+        let expected_post_type = TOPIC_POST;
         let expected_timestamp = 80;
 
         let PostHeader {
@@ -1194,7 +1204,7 @@ mod test {
         let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let expected_signature = <[u8; 64]>::from_hex("64425f10fa34c1e14b6101491772d3c5f15f720a952dd56c27d5ad52f61f695130ce286de73e332612b36242339b61c9e12397f5dcc94c79055c7e1cb1dbfb08")?;
         let expected_links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
-        let expected_post_type = 4;
+        let expected_post_type = JOIN_POST;
         let expected_timestamp = 80;
 
         let PostHeader {
@@ -1239,7 +1249,7 @@ mod test {
         let expected_public_key = <[u8; 32]>::from_hex(PUBLIC_KEY)?;
         let expected_signature = <[u8; 64]>::from_hex("abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805")?;
         let expected_links = vec![<[u8; 32]>::from_hex(POST_HASH)?];
-        let expected_post_type = 5;
+        let expected_post_type = LEAVE_POST;
         let expected_timestamp = 80;
 
         let PostHeader {
