@@ -19,9 +19,6 @@ use crate::{
     Channel, Hash, Text, Topic, UserInfo,
 };
 
-/// The data of an encoded post.
-pub type EncodedPost = Vec<u8>;
-
 #[derive(Clone, Debug)]
 /// The header of a post.
 pub struct PostHeader {

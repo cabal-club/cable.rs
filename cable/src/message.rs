@@ -14,8 +14,7 @@ use crate::{
         CHANNEL_TIME_RANGE_REQUEST, HASH_RESPONSE, POST_REQUEST, POST_RESPONSE,
     },
     error::{CableErrorKind, Error},
-    post::EncodedPost,
-    Channel, ChannelOptions, CircuitId, Hash, ReqId, Timestamp,
+    Channel, ChannelOptions, CircuitId, Hash, Payload, ReqId, Timestamp,
 };
 
 /// A complete message including header and body values.
@@ -103,7 +102,7 @@ impl Message {
     }
 
     /// Construct a post response `Message` with the given parameters.
-    pub fn post_response(circuit_id: CircuitId, req_id: ReqId, posts: Vec<EncodedPost>) -> Self {
+    pub fn post_response(circuit_id: CircuitId, req_id: ReqId, posts: Vec<Payload>) -> Self {
         let header = MessageHeader::new(HASH_RESPONSE, circuit_id, req_id);
         let body = MessageBody::Response {
             body: ResponseBody::Post { posts },
@@ -259,8 +258,8 @@ pub enum ResponseBody {
     /// Message type (`msg_type`) is `1`.
     Post {
         /// A list of encoded posts, with each one including the length and data of the post.
-        // TODO: Should this be `Post` instead of `EncodedPost`?
-        posts: Vec<EncodedPost>,
+        // TODO: Should this be `Post` instead of `Payload`?
+        posts: Vec<Payload>,
     },
     /// Respond with a list of names of known channels.
     ///
@@ -570,7 +569,7 @@ impl FromBytes for Message {
             }
             POST_RESPONSE => {
                 // Create an empty vector to store encoded posts.
-                let mut posts: Vec<EncodedPost> = Vec::new();
+                let mut posts: Vec<Payload> = Vec::new();
 
                 // Since there may be several posts, we use a loop
                 // to iterate over the bytes.
@@ -778,7 +777,7 @@ mod test {
     use crate::constants::NO_CIRCUIT;
 
     use super::{
-        EncodedPost, Error, FromBytes, Hash, Message, MessageBody, MessageHeader, RequestBody,
+        Error, FromBytes, Hash, Message, MessageBody, MessageHeader, Payload, RequestBody,
         ResponseBody, ToBytes, CANCEL_REQUEST, CHANNEL_LIST_REQUEST, CHANNEL_LIST_RESPONSE,
         CHANNEL_STATE_REQUEST, CHANNEL_TIME_RANGE_REQUEST, HASH_RESPONSE, POST_REQUEST,
         POST_RESPONSE,
@@ -1092,7 +1091,7 @@ mod test {
         /* BODY FIELD VALUES */
 
         // Create a vector of encoded posts.
-        let posts: Vec<EncodedPost> = vec![<Vec<u8>>::from_hex("25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b305500764656661756c74")?];
+        let posts: Vec<Payload> = vec![<Vec<u8>>::from_hex("25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b305500764656661756c74")?];
 
         // Construct a new response body.
         let res_body = ResponseBody::Post { posts };
@@ -1489,7 +1488,7 @@ mod test {
 
         /* BODY FIELD VALUES */
 
-        let expected_posts: Vec<EncodedPost> = vec![<Vec<u8>>::from_hex(ENCODED_POST)?];
+        let expected_posts: Vec<Payload> = vec![<Vec<u8>>::from_hex(ENCODED_POST)?];
 
         // Ensure the message body fields are correct.
         if let MessageBody::Response { body } = msg.body {

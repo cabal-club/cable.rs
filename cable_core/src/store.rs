@@ -14,7 +14,7 @@ use async_std::{
 };
 use cable::{
     error::Error,
-    post::{EncodedPost, Post, PostBody},
+    post::{Post, PostBody},
     Channel, ChannelOptions, Hash, Payload,
 };
 use desert::ToBytes;
@@ -84,7 +84,7 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
 
     /// Retrieve the post payloads for all posts represented by the given hashes.
     // TODO: Consider renaming to `get_encoded_posts()`.
-    async fn get_post_payloads(&mut self, hashes: &[Hash]) -> Result<Vec<EncodedPost>, Error>;
+    async fn get_post_payloads(&mut self, hashes: &[Hash]) -> Result<Vec<Payload>, Error>;
 }
 
 #[derive(Clone)]
@@ -373,7 +373,7 @@ impl Store for MemoryStore {
             .collect())
     }
 
-    async fn get_post_payloads(&mut self, hashes: &[Hash]) -> Result<Vec<EncodedPost>, Error> {
+    async fn get_post_payloads(&mut self, hashes: &[Hash]) -> Result<Vec<Payload>, Error> {
         let post_payloads = self.post_payloads.read().await;
 
         Ok(hashes
