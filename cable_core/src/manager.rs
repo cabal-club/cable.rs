@@ -1,3 +1,7 @@
+//! The cable manager module is responsible for tracking peer interactions,
+//! handling request and response messages and querying and updating the store.
+//! It is intended to serve as the main entrypoint for running a cable peer.
+
 use std::{
     collections::{HashMap, HashSet},
     convert::TryInto,
@@ -156,14 +160,14 @@ where
     /// Handle a request or response message.
     pub async fn handle(&mut self, peer_id: usize, msg: &Message) -> Result<(), Error> {
         let MessageHeader {
-            msg_type,
+            msg_type: _,
             circuit_id,
             req_id,
         } = msg.header;
 
         // TODO: Forward requests.
         match &msg.body {
-            MessageBody::Request { ttl, body } => match body {
+            MessageBody::Request { ttl: _, body } => match body {
                 RequestBody::Post { hashes } => {
                     let posts = self.store.get_post_payloads(hashes).await?;
                     let response = Message::post_response(circuit_id, req_id, posts);
@@ -222,8 +226,20 @@ where
 
                     self.send(peer_id, &response).await?;
                 }
-                RequestBody::ChannelState { channel, future } => {
-                    todo!()
+                RequestBody::ChannelState {
+                    channel: _,
+                    future: _,
+                } => {
+                    /*
+                    TODO: We will require channel state indexes before this
+                    handler can be completed.
+
+                    Channel state includes (spec section 5.4.4):
+
+                    The latest post/info post of all members and ex-members.
+                    The latest of all users' post/join or post/leave posts to the channel.
+                    The latest post/topic post made to the channel.
+                    */
                 }
                 RequestBody::ChannelList { skip, limit } => {
                     let mut all_channels = self.store.get_channels().await?;
@@ -298,6 +314,11 @@ where
                         // posts.
                         requested_posts.remove(&post_hash);
 
+                        // TODO: Hand the post over to an indexer.
+                        // The indexer will be responsible for matching on
+                        // the post type, extracting key info and indexing it
+                        // in the store.
+
                         self.store.insert_post(&post).await?;
                     }
                 }
@@ -348,7 +369,7 @@ where
         &mut self,
         channel_opts: &ChannelOptions,
     ) -> Result<PostStream<'_>, Error> {
-        let (req_id, req_id_bytes) = self.new_req_id().await?;
+        let (_req_id, req_id_bytes) = self.new_req_id().await?;
 
         let request = Message::channel_time_range_request(
             NO_CIRCUIT,
@@ -368,6 +389,9 @@ where
     }
 
     pub async fn close_channel(&self, _channel: &[u8]) {
+        // TODO: Cancel the channel time range request associated
+        // with this channel. Might require the request ID generated in the
+        // originating `open_channel()`...
         unimplemented![]
     }
 
@@ -383,18 +407,21 @@ where
     // TODO: Convert to `get_links()`?
     pub async fn get_link(&mut self, channel: &Channel) -> Result<Hash, Error> {
         let link = self.store.get_latest_hash(channel).await?;
+
         Ok(link)
     }
 
     /// Retrieve the public key of the local peer.
     pub async fn get_public_key(&mut self) -> Result<[u8; 32], Error> {
         let (pk, _sk) = self.store.get_or_create_keypair().await?;
+
         Ok(pk)
     }
 
     /// Retrieve the secret key of the local peer.
     pub async fn get_secret_key(&mut self) -> Result<[u8; 64], Error> {
         let (_pk, sk) = self.store.get_or_create_keypair().await?;
+
         Ok(sk)
     }
 
@@ -436,8 +463,10 @@ where
         };
 
         // Define the stream decoder parameters.
-        let mut options = DecodeOptions::default();
-        options.include_len = true;
+        let options = DecodeOptions {
+            include_len: true,
+            ..Default::default()
+        };
 
         let mut length_prefixed_stream = decode_with_options(stream, options);
 
