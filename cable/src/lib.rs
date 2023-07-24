@@ -35,6 +35,18 @@ pub struct ChannelOptions {
     pub limit: u64,
 }
 
+impl ChannelOptions {
+    /// Create a new instance of `ChannelOptions`.
+    pub fn new<T: Into<String>>(channel: T, time_start: u64, time_end: u64, limit: u64) -> Self {
+        ChannelOptions {
+            channel: channel.into(),
+            time_start,
+            time_end,
+            limit,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 /// Information self-published by a user.
 pub struct UserInfo {
