@@ -17,11 +17,11 @@ use cable::post::Post;
 
 // Create a new text post.
 let mut text_post = Post::text(
-		public_key,
-		links,
-		timestamp,
-		channel,
-		text,
+    public_key,
+    links,
+    timestamp,
+    channel,
+    text,
 );
 
 // Sign the post.
