@@ -87,7 +87,6 @@ where
         text: U,
     ) -> Result<(), Error> {
         let public_key = self.get_public_key().await?;
-        let signature = [0; 64];
         let channel = channel.into();
         let links = vec![self.get_link(&channel).await?];
         let timestamp = std::time::SystemTime::now()
@@ -96,7 +95,7 @@ where
         let text = text.into();
 
         // Construct a new text post.
-        let post = Post::text(public_key, signature, links, timestamp, channel, text);
+        let post = Post::text(public_key, links, timestamp, channel, text);
 
         self.post(post).await
     }

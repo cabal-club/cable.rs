@@ -1,5 +1,7 @@
 #![doc=include_str!("../README.md")]
 
+use std::fmt;
+
 pub mod constants;
 pub mod error;
 pub mod message;
@@ -35,7 +37,19 @@ pub struct ChannelOptions {
     pub limit: u64,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+impl ChannelOptions {
+    /// Create a new instance of `ChannelOptions`.
+    pub fn new<T: Into<String>>(channel: T, time_start: u64, time_end: u64, limit: u64) -> Self {
+        ChannelOptions {
+            channel: channel.into(),
+            time_start,
+            time_end,
+            limit,
+        }
+    }
+}
+
+#[derive(Clone, PartialEq)]
 /// Information self-published by a user.
 pub struct UserInfo {
     pub key: String,
@@ -66,6 +80,20 @@ impl UserInfo {
         }
 
         Ok(UserInfo::new("name", name))
+    }
+}
+
+/// Print debug representation of user info.
+impl fmt::Debug for UserInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "key: {:?}, val: {:?}", &self.key, &self.val)
+    }
+}
+
+/// Print user info.
+impl fmt::Display for UserInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "key: {}, val: {}", &self.key, &self.val)
     }
 }
 

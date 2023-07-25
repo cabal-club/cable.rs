@@ -6,7 +6,10 @@
 //! Also includes implementations of the `CountBytes`, `FromBytes` and `ToBytes`
 //! traits for `Message`. This forms the core of the cable protocol.
 
+use std::fmt;
+
 use desert::{varint, CountBytes, FromBytes, ToBytes};
+use sodiumoxide::hex;
 
 use crate::{
     constants::{
@@ -49,15 +52,23 @@ impl Message {
         }
     }
 
-    /// Construct a channel list response `Message` with the given parameters.
-    pub fn channel_list_response(
-        circuit_id: CircuitId,
-        req_id: ReqId,
-        channels: Vec<Channel>,
-    ) -> Self {
-        let header = MessageHeader::new(CHANNEL_LIST_RESPONSE, circuit_id, req_id);
-        let body = MessageBody::Response {
-            body: ResponseBody::ChannelList { channels },
+    /// Construct a post request `Message` with the given parameters.
+    pub fn post_request(circuit_id: CircuitId, req_id: ReqId, ttl: u8, hashes: Vec<Hash>) -> Self {
+        let header = MessageHeader::new(POST_REQUEST, circuit_id, req_id);
+        let body = MessageBody::Request {
+            ttl,
+            body: RequestBody::Post { hashes },
+        };
+
+        Message::new(header, body)
+    }
+
+    /// Construct a cancel request `Message` with the given parameters.
+    pub fn cancel_request(circuit_id: CircuitId, req_id: ReqId, ttl: u8, cancel_id: ReqId) -> Self {
+        let header = MessageHeader::new(CANCEL_REQUEST, circuit_id, req_id);
+        let body = MessageBody::Request {
+            ttl,
+            body: RequestBody::Cancel { cancel_id },
         };
 
         Message::new(header, body)
@@ -91,6 +102,40 @@ impl Message {
         Message::new(header, body)
     }
 
+    /// Construct a channel state request `Message` with the given parameters.
+    pub fn channel_state_request(
+        circuit_id: CircuitId,
+        req_id: ReqId,
+        ttl: u8,
+        channel: Channel,
+        future: u64,
+    ) -> Self {
+        let header = MessageHeader::new(CHANNEL_STATE_REQUEST, circuit_id, req_id);
+        let body = MessageBody::Request {
+            ttl,
+            body: RequestBody::ChannelState { channel, future },
+        };
+
+        Message::new(header, body)
+    }
+
+    /// Construct a channel list request `Message` with the given parameters.
+    pub fn channel_list_request(
+        circuit_id: CircuitId,
+        req_id: ReqId,
+        ttl: u8,
+        skip: u64,
+        limit: u64,
+    ) -> Self {
+        let header = MessageHeader::new(CHANNEL_LIST_REQUEST, circuit_id, req_id);
+        let body = MessageBody::Request {
+            ttl,
+            body: RequestBody::ChannelList { skip, limit },
+        };
+
+        Message::new(header, body)
+    }
+
     /// Construct a hash response `Message` with the given parameters.
     pub fn hash_response(circuit_id: CircuitId, req_id: ReqId, hashes: Vec<Hash>) -> Self {
         let header = MessageHeader::new(HASH_RESPONSE, circuit_id, req_id);
@@ -103,7 +148,7 @@ impl Message {
 
     /// Construct a post response `Message` with the given parameters.
     pub fn post_response(circuit_id: CircuitId, req_id: ReqId, posts: Vec<Payload>) -> Self {
-        let header = MessageHeader::new(HASH_RESPONSE, circuit_id, req_id);
+        let header = MessageHeader::new(POST_RESPONSE, circuit_id, req_id);
         let body = MessageBody::Response {
             body: ResponseBody::Post { posts },
         };
@@ -111,15 +156,25 @@ impl Message {
         Message::new(header, body)
     }
 
-    /// Construct a post request `Message` with the given parameters.
-    pub fn post_request(circuit_id: CircuitId, req_id: ReqId, ttl: u8, hashes: Vec<Hash>) -> Self {
-        let header = MessageHeader::new(POST_REQUEST, circuit_id, req_id);
-        let body = MessageBody::Request {
-            ttl,
-            body: RequestBody::Post { hashes },
+    /// Construct a channel list response `Message` with the given parameters.
+    pub fn channel_list_response(
+        circuit_id: CircuitId,
+        req_id: ReqId,
+        channels: Vec<Channel>,
+    ) -> Self {
+        let header = MessageHeader::new(CHANNEL_LIST_RESPONSE, circuit_id, req_id);
+        let body = MessageBody::Response {
+            body: ResponseBody::ChannelList { channels },
         };
 
         Message::new(header, body)
+    }
+}
+
+/// Print a message with byte arrays formatted as hex strings.
+impl fmt::Display for Message {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{{ {}, {} }}", &self.header, &self.body)
     }
 }
 
@@ -145,6 +200,20 @@ impl MessageHeader {
     }
 }
 
+/// Print a message header with byte arrays formatted as hex strings.
+impl fmt::Display for MessageHeader {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let circuit_id_hex = hex::encode(self.circuit_id);
+        let req_id_hex = hex::encode(self.req_id);
+
+        write!(
+            f,
+            "msg_type: {}, circuit_id: {:?}, req_id: {:?}",
+            &self.msg_type, circuit_id_hex, req_id_hex
+        )
+    }
+}
+
 #[derive(Clone, Debug)]
 /// The body of a request or response message.
 pub enum MessageBody {
@@ -160,6 +229,23 @@ pub enum MessageBody {
     Unrecognized {
         msg_type: u64,
     },
+}
+
+/// Print a message body with byte arrays formatted as hex strings.
+impl fmt::Display for MessageBody {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            MessageBody::Request { ttl, body } => {
+                write!(f, "ttl: {}, {}", ttl, body)
+            }
+            MessageBody::Response { body } => {
+                write!(f, "{}", body)
+            }
+            MessageBody::Unrecognized { msg_type: _ } => {
+                write!(f, "msg_type: unrecognized")
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -243,6 +329,40 @@ pub enum RequestBody {
     },
 }
 
+/// Print a message request body with byte arrays formatted as hex strings.
+impl fmt::Display for RequestBody {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            RequestBody::Post { hashes } => {
+                let hashes_hex: Vec<String> = hashes.iter().map(hex::encode).collect();
+                write!(f, "hashes: {:?}", hashes_hex)
+            }
+            RequestBody::Cancel { cancel_id } => {
+                let cancel_id_hex = hex::encode(cancel_id);
+                write!(f, "cancel_id: {:?}", cancel_id_hex)
+            }
+            RequestBody::ChannelTimeRange {
+                channel,
+                time_start,
+                time_end,
+                limit,
+            } => {
+                write!(
+                    f,
+                    "channel: {:?}, time_start: {}, time_end: {}, limit: {}",
+                    channel, time_start, time_end, limit
+                )
+            }
+            RequestBody::ChannelState { channel, future } => {
+                write!(f, "channel: {:?}, future: {}", channel, future)
+            }
+            RequestBody::ChannelList { skip, limit } => {
+                write!(f, "offset: {}, limit: {}", skip, limit)
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 /// The body of a response message.
 pub enum ResponseBody {
@@ -258,7 +378,6 @@ pub enum ResponseBody {
     /// Message type (`msg_type`) is `1`.
     Post {
         /// A list of encoded posts, with each one including the length and data of the post.
-        // TODO: Should this be `Post` instead of `Payload`?
         posts: Vec<Payload>,
     },
     /// Respond with a list of names of known channels.
@@ -268,6 +387,25 @@ pub enum ResponseBody {
         /// A list of channels, with each one including the length and name of a channel.
         channels: Vec<Channel>,
     },
+}
+
+/// Print a message response body with byte arrays formatted as hex strings.
+impl fmt::Display for ResponseBody {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ResponseBody::Hash { hashes } => {
+                let hashes_hex: Vec<String> = hashes.iter().map(hex::encode).collect();
+                write!(f, "hashes: {:?}", hashes_hex)
+            }
+            ResponseBody::Post { posts } => {
+                let posts_hex: Vec<String> = posts.iter().map(hex::encode).collect();
+                write!(f, "posts: {:?}", posts_hex)
+            }
+            ResponseBody::ChannelList { channels } => {
+                write!(f, "channels: {:?}", channels)
+            }
+        }
+    }
 }
 
 impl CountBytes for Message {
@@ -774,7 +912,7 @@ impl FromBytes for Message {
 
 #[cfg(test)]
 mod test {
-    use crate::constants::NO_CIRCUIT;
+    use crate::{constants::NO_CIRCUIT, ChannelOptions};
 
     use super::{
         Error, FromBytes, Hash, Message, MessageBody, MessageHeader, Payload, RequestBody,
@@ -794,6 +932,10 @@ mod test {
 
     const CANCEL_ID: &str = "31b5c9e1";
 
+    const HASH_1: &str = "15ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e5";
+    const HASH_2: &str = "97fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db68";
+    const HASH_3: &str = "9c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa";
+
     const ENCODED_POST: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b305500764656661756c74";
 
     const POST_REQUEST_HEX_BINARY: &str = "6b020000000004baaffb010315ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e597fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db689c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa";
@@ -811,39 +953,17 @@ mod test {
 
     #[test]
     fn post_request_to_bytes() -> Result<(), Error> {
-        /* HEADER FIELD VALUES */
-
-        let msg_type = POST_REQUEST;
+        // TODO: Use `sodiumoxide::hex::decode` instead.
         let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
-
-        // Construct a new message header.
-        let header = MessageHeader::new(msg_type, CIRCUIT_ID, req_id);
-
-        /* BODY FIELD VALUES */
-
-        // Create a vector of hashes.
         let hashes: Vec<Hash> = vec![
-            <[u8; 32]>::from_hex(
-                "15ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e5",
-            )?,
-            <[u8; 32]>::from_hex(
-                "97fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db68",
-            )?,
-            <[u8; 32]>::from_hex(
-                "9c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa",
-            )?,
+            <[u8; 32]>::from_hex(HASH_1)?,
+            <[u8; 32]>::from_hex(HASH_2)?,
+            <[u8; 32]>::from_hex(HASH_3)?,
         ];
 
-        // Construct a new request body.
-        let req_body = RequestBody::Post { hashes };
-        // Construct a new message body.
-        let body = MessageBody::Request {
-            ttl: TTL,
-            body: req_body,
-        };
+        // Construct a new post request message.
+        let msg = Message::post_request(CIRCUIT_ID, req_id, TTL, hashes);
 
-        // Construct a new message.
-        let msg = Message::new(header, body);
         // Convert the message to bytes.
         let msg_bytes = msg.to_bytes()?;
 
@@ -862,28 +982,11 @@ mod test {
 
     #[test]
     fn cancel_request_to_bytes() -> Result<(), Error> {
-        /* HEADER FIELD VALUES */
-
-        let msg_type = CANCEL_REQUEST;
         let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
-
-        // Construct a new message header.
-        let header = MessageHeader::new(msg_type, CIRCUIT_ID, req_id);
-
-        /* BODY FIELD VALUES */
-
         let cancel_id = <[u8; 4]>::from_hex(CANCEL_ID)?;
 
-        // Construct a new request body.
-        let req_body = RequestBody::Cancel { cancel_id };
-        // Construct a new message body.
-        let body = MessageBody::Request {
-            body: req_body,
-            ttl: TTL,
-        };
-
-        // Construct a new message.
-        let msg = Message::new(header, body);
+        // Construct a new cancel request message.
+        let msg = Message::cancel_request(CIRCUIT_ID, req_id, TTL, cancel_id);
         // Convert the message to bytes.
         let msg_bytes = msg.to_bytes()?;
 
@@ -902,36 +1005,16 @@ mod test {
 
     #[test]
     fn channel_time_range_request_to_bytes() -> Result<(), Error> {
-        /* HEADER FIELD VALUES */
-
-        let msg_type = CHANNEL_TIME_RANGE_REQUEST;
         let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
-
-        // Construct a new message header.
-        let header = MessageHeader::new(msg_type, CIRCUIT_ID, req_id);
-
-        /* BODY FIELD VALUES */
-
-        let channel = "default".to_string();
-        let time_start = 0;
-        let time_end = 100;
-        let limit = 20;
-
-        // Construct a new request body.
-        let req_body = RequestBody::ChannelTimeRange {
-            channel,
-            time_start,
-            time_end,
-            limit,
-        };
-        // Construct a new message body.
-        let body = MessageBody::Request {
-            body: req_body,
-            ttl: TTL,
+        let channel_opts = ChannelOptions {
+            channel: "default".to_string(),
+            time_start: 0,
+            time_end: 100,
+            limit: 20,
         };
 
-        // Construct a new message.
-        let msg = Message::new(header, body);
+        // Construct a new channel time range request message.
+        let msg = Message::channel_time_range_request(CIRCUIT_ID, req_id, TTL, channel_opts);
         // Convert the message to bytes.
         let msg_bytes = msg.to_bytes()?;
 
@@ -950,29 +1033,12 @@ mod test {
 
     #[test]
     fn channel_state_request_to_bytes() -> Result<(), Error> {
-        /* HEADER FIELD VALUES */
-
-        let msg_type = CHANNEL_STATE_REQUEST;
         let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
-
-        // Construct a new message header.
-        let header = MessageHeader::new(msg_type, CIRCUIT_ID, req_id);
-
-        /* BODY FIELD VALUES */
-
         let channel = "default".to_string();
         let future = 0;
 
-        // Construct a new request body.
-        let req_body = RequestBody::ChannelState { channel, future };
-        // Construct a new message body.
-        let body = MessageBody::Request {
-            body: req_body,
-            ttl: TTL,
-        };
-
-        // Construct a new message.
-        let msg = Message::new(header, body);
+        // Construct a new channel state request message.
+        let msg = Message::channel_state_request(CIRCUIT_ID, req_id, TTL, channel, future);
         // Convert the message to bytes.
         let msg_bytes = msg.to_bytes()?;
 
@@ -991,29 +1057,12 @@ mod test {
 
     #[test]
     fn channel_list_request_to_bytes() -> Result<(), Error> {
-        /* HEADER FIELD VALUES */
-
-        let msg_type = CHANNEL_LIST_REQUEST;
         let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
-
-        // Construct a new message header.
-        let header = MessageHeader::new(msg_type, CIRCUIT_ID, req_id);
-
-        /* BODY FIELD VALUES */
-
         let skip = 0;
         let limit = 20;
 
-        // Construct a new request body.
-        let req_body = RequestBody::ChannelList { skip, limit };
-        // Construct a new message body.
-        let body = MessageBody::Request {
-            body: req_body,
-            ttl: TTL,
-        };
-
-        // Construct a new message.
-        let msg = Message::new(header, body);
+        // Construct a new channel list request message.
+        let msg = Message::channel_list_request(CIRCUIT_ID, req_id, TTL, skip, limit);
         // Convert the message to bytes.
         let msg_bytes = msg.to_bytes()?;
 
@@ -1032,36 +1081,16 @@ mod test {
 
     #[test]
     fn hash_response_to_bytes() -> Result<(), Error> {
-        /* HEADER FIELD VALUES */
-
-        let msg_type = HASH_RESPONSE;
         let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
-
-        // Construct a new message header.
-        let header = MessageHeader::new(msg_type, CIRCUIT_ID, req_id);
-
-        /* BODY FIELD VALUES */
-
         // Create a vector of hashes.
         let hashes: Vec<Hash> = vec![
-            <[u8; 32]>::from_hex(
-                "15ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e5",
-            )?,
-            <[u8; 32]>::from_hex(
-                "97fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db68",
-            )?,
-            <[u8; 32]>::from_hex(
-                "9c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa",
-            )?,
+            <[u8; 32]>::from_hex(HASH_1)?,
+            <[u8; 32]>::from_hex(HASH_2)?,
+            <[u8; 32]>::from_hex(HASH_3)?,
         ];
 
-        // Construct a new response body.
-        let res_body = ResponseBody::Hash { hashes };
-        // Construct a new message body.
-        let body = MessageBody::Response { body: res_body };
-
-        // Construct a new message.
-        let msg = Message::new(header, body);
+        // Construct a new hash response message.
+        let msg = Message::hash_response(CIRCUIT_ID, req_id, hashes);
         // Convert the message to bytes.
         let msg_bytes = msg.to_bytes()?;
 
@@ -1080,26 +1109,12 @@ mod test {
 
     #[test]
     fn post_response_to_bytes() -> Result<(), Error> {
-        /* HEADER FIELD VALUES */
-
-        let msg_type = POST_RESPONSE;
         let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
-
-        // Construct a new message header.
-        let header = MessageHeader::new(msg_type, CIRCUIT_ID, req_id);
-
-        /* BODY FIELD VALUES */
-
         // Create a vector of encoded posts.
         let posts: Vec<Payload> = vec![<Vec<u8>>::from_hex("25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0abb083ecdca569f064564942ddf1944fbf550dc27ea36a7074be798d753cb029703de77b1a9532b6ca2ec5706e297dce073d6e508eeb425c32df8431e4677805015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b305500764656661756c74")?];
 
-        // Construct a new response body.
-        let res_body = ResponseBody::Post { posts };
-        // Construct a new message body.
-        let body = MessageBody::Response { body: res_body };
-
-        // Construct a new message.
-        let msg = Message::new(header, body);
+        // Construct a new post response message.
+        let msg = Message::post_response(CIRCUIT_ID, req_id, posts);
         // Convert the message to bytes.
         let msg_bytes = msg.to_bytes()?;
 
@@ -1118,16 +1133,7 @@ mod test {
 
     #[test]
     fn channel_list_response_to_bytes() -> Result<(), Error> {
-        /* HEADER FIELD VALUES */
-
-        let msg_type = CHANNEL_LIST_RESPONSE;
         let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
-
-        // Construct a new message header.
-        let header = MessageHeader::new(msg_type, CIRCUIT_ID, req_id);
-
-        /* BODY FIELD VALUES */
-
         // Create a vector of channels.
         let channels = vec![
             "default".to_string(),
@@ -1135,13 +1141,8 @@ mod test {
             "introduction".to_string(),
         ];
 
-        // Construct a new response body.
-        let res_body = ResponseBody::ChannelList { channels };
-        // Construct a new message body.
-        let body = MessageBody::Response { body: res_body };
-
-        // Construct a new message.
-        let msg = Message::new(header, body);
+        // Construct a new channel list response message.
+        let msg = Message::channel_list_response(CIRCUIT_ID, req_id, channels);
         // Convert the message to bytes.
         let msg_bytes = msg.to_bytes()?;
 
@@ -1190,15 +1191,9 @@ mod test {
         /* BODY FIELD VALUES */
 
         let expected_hashes: Vec<Hash> = vec![
-            <[u8; 32]>::from_hex(
-                "15ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e5",
-            )?,
-            <[u8; 32]>::from_hex(
-                "97fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db68",
-            )?,
-            <[u8; 32]>::from_hex(
-                "9c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa",
-            )?,
+            <[u8; 32]>::from_hex(HASH_1)?,
+            <[u8; 32]>::from_hex(HASH_2)?,
+            <[u8; 32]>::from_hex(HASH_3)?,
         ];
 
         // Ensure the message body fields are correct.
@@ -1436,15 +1431,9 @@ mod test {
         /* BODY FIELD VALUES */
 
         let expected_hashes: Vec<Hash> = vec![
-            <[u8; 32]>::from_hex(
-                "15ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e5",
-            )?,
-            <[u8; 32]>::from_hex(
-                "97fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db68",
-            )?,
-            <[u8; 32]>::from_hex(
-                "9c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa",
-            )?,
+            <[u8; 32]>::from_hex(HASH_1)?,
+            <[u8; 32]>::from_hex(HASH_2)?,
+            <[u8; 32]>::from_hex(HASH_3)?,
         ];
 
         // Ensure the message body fields are correct.

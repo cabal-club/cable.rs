@@ -7,10 +7,15 @@
 //! Also includes implementations of the `CountBytes`, `FromBytes` and `ToBytes`
 //! traits for `Post`. This forms the core of the cable protocol.
 
+use std::fmt;
+
 use desert::{varint, CountBytes, FromBytes, ToBytes};
-use sodiumoxide::crypto::{
-    generichash, sign,
-    sign::{PublicKey, SecretKey, Signature},
+use sodiumoxide::{
+    crypto::{
+        generichash, sign,
+        sign::{PublicKey, SecretKey, Signature},
+    },
+    hex,
 };
 
 use crate::{
@@ -50,6 +55,21 @@ impl PostHeader {
             post_type,
             timestamp,
         }
+    }
+}
+
+/// Print a post header with byte arrays formatted as hex strings.
+impl fmt::Display for PostHeader {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let public_key_hex = hex::encode(self.public_key);
+        let signature_hex = hex::encode(self.signature);
+        let links_hex: &Vec<String> = &self.links.iter().map(hex::encode).collect();
+
+        write!(
+            f,
+            "public_key: {:?}, signature: {:?}, links: {:?}, post_type: {}, timestamp: {}",
+            public_key_hex, signature_hex, links_hex, &self.post_type, &self.timestamp
+        )
     }
 }
 
@@ -98,6 +118,36 @@ pub enum PostBody {
     Unrecognized { post_type: u64 },
 }
 
+/// Print a post body with byte arrays formatted as hex strings.
+impl fmt::Display for PostBody {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            PostBody::Text { channel, text } => {
+                write!(f, "channel: {:?}, text: {:?}", channel, text)
+            }
+            PostBody::Delete { hashes } => {
+                let hashes_hex: Vec<String> = hashes.iter().map(hex::encode).collect();
+                write!(f, "hashes: {:?}", hashes_hex)
+            }
+            PostBody::Info { info } => {
+                write!(f, "info: {:?}", info)
+            }
+            PostBody::Topic { channel, topic } => {
+                write!(f, "channel: {:?}, topic: {:?}", channel, topic)
+            }
+            PostBody::Join { channel } => {
+                write!(f, "channel: {:?}", channel)
+            }
+            PostBody::Leave { channel } => {
+                write!(f, "channel: {:?}", channel)
+            }
+            PostBody::Unrecognized { post_type: _ } => {
+                write!(f, "post_type: unrecognized")
+            }
+        }
+    }
+}
+
 /// A complete post including header and body values.
 #[derive(Clone, Debug)]
 pub struct Post {
@@ -111,17 +161,72 @@ impl Post {
         Post { header, body }
     }
 
-    /// Construct a text `Post` with the given parameters.
+    /// Construct an unsigned text `Post` with the given parameters.
     pub fn text(
         public_key: [u8; 32],
-        signature: [u8; 64],
         links: Vec<Hash>,
         timestamp: u64,
         channel: Channel,
         text: Text,
     ) -> Self {
-        let header = PostHeader::new(public_key, signature, links, TEXT_POST, timestamp);
+        let header = PostHeader::new(public_key, [0; 64], links, TEXT_POST, timestamp);
         let body = PostBody::Text { channel, text };
+
+        Post { header, body }
+    }
+
+    /// Construct an unsigned delete `Post` with the given parameters.
+    pub fn delete(
+        public_key: [u8; 32],
+        links: Vec<Hash>,
+        timestamp: u64,
+        hashes: Vec<Hash>,
+    ) -> Self {
+        let header = PostHeader::new(public_key, [0; 64], links, DELETE_POST, timestamp);
+        let body = PostBody::Delete { hashes };
+
+        Post { header, body }
+    }
+
+    /// Construct an unsigned info `Post` with the given parameters.
+    pub fn info(
+        public_key: [u8; 32],
+        links: Vec<Hash>,
+        timestamp: u64,
+        info: Vec<UserInfo>,
+    ) -> Self {
+        let header = PostHeader::new(public_key, [0; 64], links, INFO_POST, timestamp);
+        let body = PostBody::Info { info };
+
+        Post { header, body }
+    }
+
+    /// Construct an unsigned topic `Post` with the given parameters.
+    pub fn topic(
+        public_key: [u8; 32],
+        links: Vec<Hash>,
+        timestamp: u64,
+        channel: Channel,
+        topic: Topic,
+    ) -> Self {
+        let header = PostHeader::new(public_key, [0; 64], links, TOPIC_POST, timestamp);
+        let body = PostBody::Topic { channel, topic };
+
+        Post { header, body }
+    }
+
+    /// Construct an unsigned join `Post` with the given parameters.
+    pub fn join(public_key: [u8; 32], links: Vec<Hash>, timestamp: u64, channel: Channel) -> Self {
+        let header = PostHeader::new(public_key, [0; 64], links, JOIN_POST, timestamp);
+        let body = PostBody::Join { channel };
+
+        Post { header, body }
+    }
+
+    /// Construct an unsigned leave `Post` with the given parameters.
+    pub fn leave(public_key: [u8; 32], links: Vec<Hash>, timestamp: u64, channel: Channel) -> Self {
+        let header = PostHeader::new(public_key, [0; 64], links, LEAVE_POST, timestamp);
+        let body = PostBody::Leave { channel };
 
         Post { header, body }
     }
@@ -219,6 +324,13 @@ impl Post {
             (Some(pk), Ok(sig)) => sign::verify_detached(&sig, &buf[32 + 64..], &pk),
             _ => false,
         }
+    }
+}
+
+/// Print a post with byte arrays formatted as hex strings.
+impl fmt::Display for Post {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{{ {}, {} }}", &self.header, &self.body)
     }
 }
 
@@ -623,9 +735,12 @@ mod test {
 
     const PUBLIC_KEY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0";
     const POST_HASH: &str = "5049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b3";
+    const HASH_1: &str = "15ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e5";
+    const HASH_2: &str = "97fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db68";
+    const HASH_3: &str = "9c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa";
+
     const TEXT_POST_HEX_BINARY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d06725733046b35fa3a7e8dc0099a2b3dff10d3fd8b0f6da70d094352e3f5d27a8bc3f5586cf0bf71befc22536c3c50ec7b1d64398d43c3f4cde778e579e88af05015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b300500764656661756c740d68e282ac6c6c6f20776f726c64";
     const DELETE_POST_HEX_BINARY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0affe77e3b3156cda7feea042269bb7e93f5031662c70610d37baa69132b4150c18d67cb2ac24fb0f9be0a6516e53ba2f3bbc5bd8e7a1bff64d9c78ce0c2e4205015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b301500315ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e597fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db689c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa";
-    //const INFO_POST_HEX_BINARY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0f70273779147a3b756407d5660ed2e8e2975abc5ab224fb152aa2bfb3dd331740a66e0718cd580bc94978c1c3cd4524ad8cb2f4cca80df481010c3ef834ac700015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b30250046e616d65066361626c6572";
     const INFO_POST_HEX_BINARY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d04ccb1c0063ef09a200e031ee89d874bcc99f3e6fd8fd667f5e28f4dbcf4b7de6bb1ce37d5f01cc055a7b70cef175d30feeb34531db98c91fa8b3fa4d7c5fd307015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b30250046e616d65066361626c657200";
     const TOPIC_POST_HEX_BINARY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d0bf7578e781caee4ca708281645b291a2100c4f2138f0e0ac98bc2b4a414b4ba8dca08285751114b05f131421a1745b648c43b17b05392593237dfacc8dff5208015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b303500764656661756c743b696e74726f6475636520796f757273656c6620746f2074686520667269656e646c792063726f7764206f66206c696b656d696e64656420666f6c78";
     const JOIN_POST_HEX_BINARY: &str = "25b272a71555322d40efe449a7f99af8fd364b92d350f1664481b2da340a02d064425f10fa34c1e14b6101491772d3c5f15f720a952dd56c27d5ad52f61f695130ce286de73e332612b36242339b61c9e12397f5dcc94c79055c7e1cb1dbfb08015049d089a650aa896cb25ec35258653be4df196b4a5e5b6db7ed024aaa89e1b304500764656661756c74";
@@ -794,15 +909,9 @@ mod test {
 
         // Create a vector of hashes.
         let hashes: Vec<Hash> = vec![
-            <[u8; 32]>::from_hex(
-                "15ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e5",
-            )?,
-            <[u8; 32]>::from_hex(
-                "97fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db68",
-            )?,
-            <[u8; 32]>::from_hex(
-                "9c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa",
-            )?,
+            <[u8; 32]>::from_hex(HASH_1)?,
+            <[u8; 32]>::from_hex(HASH_2)?,
+            <[u8; 32]>::from_hex(HASH_3)?,
         ];
 
         // Construct a new post body.
@@ -1074,15 +1183,9 @@ mod test {
 
         // Create a vector of hashes.
         let expected_hashes: Vec<Hash> = vec![
-            <[u8; 32]>::from_hex(
-                "15ed54965515babf6f16be3f96b04b29ecca813a343311dae483691c07ccf4e5",
-            )?,
-            <[u8; 32]>::from_hex(
-                "97fc63631c41384226b9b68d9f73ffaaf6eac54b71838687f48f112e30d6db68",
-            )?,
-            <[u8; 32]>::from_hex(
-                "9c2939fec6d47b00bafe6967aeff697cf4b5abca01b04ba1b31a7e3752454bfa",
-            )?,
+            <[u8; 32]>::from_hex(HASH_1)?,
+            <[u8; 32]>::from_hex(HASH_2)?,
+            <[u8; 32]>::from_hex(HASH_3)?,
         ];
 
         // Ensure the post body fields are correct.
