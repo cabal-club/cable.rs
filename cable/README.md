@@ -12,7 +12,7 @@ See `cable/examples/types.rs` for a complete set of examples.
 
 **Encode and decode a post.**
 
-```rust
+```rust,ignore
 use cable::post::Post;
 
 // Create a new text post.
@@ -36,7 +36,7 @@ let decoded_text_post = Post::from_bytes(&text_post_bytes)?;
 
 **Encode and decode a message.**
 
-```rust
+```rust,ignore
 use cable::message::Message;
 
 // Create a new post request message.
