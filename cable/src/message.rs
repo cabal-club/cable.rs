@@ -203,8 +203,8 @@ impl MessageHeader {
 /// Print a message header with byte arrays formatted as hex strings.
 impl fmt::Display for MessageHeader {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let circuit_id_hex = hex::encode(&self.circuit_id);
-        let req_id_hex = hex::encode(&self.req_id);
+        let circuit_id_hex = hex::encode(self.circuit_id);
+        let req_id_hex = hex::encode(self.req_id);
 
         write!(
             f,
@@ -334,7 +334,7 @@ impl fmt::Display for RequestBody {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             RequestBody::Post { hashes } => {
-                let hashes_hex: Vec<String> = hashes.iter().map(|hash| hex::encode(hash)).collect();
+                let hashes_hex: Vec<String> = hashes.iter().map(hex::encode).collect();
                 write!(f, "hashes: {:?}", hashes_hex)
             }
             RequestBody::Cancel { cancel_id } => {
@@ -394,11 +394,11 @@ impl fmt::Display for ResponseBody {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ResponseBody::Hash { hashes } => {
-                let hashes_hex: Vec<String> = hashes.iter().map(|hash| hex::encode(hash)).collect();
+                let hashes_hex: Vec<String> = hashes.iter().map(hex::encode).collect();
                 write!(f, "hashes: {:?}", hashes_hex)
             }
             ResponseBody::Post { posts } => {
-                let posts_hex: Vec<String> = posts.iter().map(|post| hex::encode(post)).collect();
+                let posts_hex: Vec<String> = posts.iter().map(hex::encode).collect();
                 write!(f, "posts: {:?}", posts_hex)
             }
             ResponseBody::ChannelList { channels } => {
