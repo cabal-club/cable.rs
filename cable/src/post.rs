@@ -7,10 +7,15 @@
 //! Also includes implementations of the `CountBytes`, `FromBytes` and `ToBytes`
 //! traits for `Post`. This forms the core of the cable protocol.
 
+use std::fmt;
+
 use desert::{varint, CountBytes, FromBytes, ToBytes};
-use sodiumoxide::crypto::{
-    generichash, sign,
-    sign::{PublicKey, SecretKey, Signature},
+use sodiumoxide::{
+    crypto::{
+        generichash, sign,
+        sign::{PublicKey, SecretKey, Signature},
+    },
+    hex,
 };
 
 use crate::{
@@ -50,6 +55,21 @@ impl PostHeader {
             post_type,
             timestamp,
         }
+    }
+}
+
+/// Print a post header with byte arrays formatted as hex strings.
+impl fmt::Display for PostHeader {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let public_key_hex = hex::encode(self.public_key);
+        let signature_hex = hex::encode(self.signature);
+        let links_hex: &Vec<String> = &self.links.iter().map(hex::encode).collect();
+
+        write!(
+            f,
+            "public_key: {:?}, signature: {:?}, links: {:?}, post_type: {}, timestamp: {}",
+            public_key_hex, signature_hex, links_hex, &self.post_type, &self.timestamp
+        )
     }
 }
 
@@ -98,6 +118,36 @@ pub enum PostBody {
     Unrecognized { post_type: u64 },
 }
 
+/// Print a post body with byte arrays formatted as hex strings.
+impl fmt::Display for PostBody {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            PostBody::Text { channel, text } => {
+                write!(f, "channel: {:?}, text: {:?}", channel, text)
+            }
+            PostBody::Delete { hashes } => {
+                let hashes_hex: Vec<String> = hashes.iter().map(hex::encode).collect();
+                write!(f, "hashes: {:?}", hashes_hex)
+            }
+            PostBody::Info { info } => {
+                write!(f, "info: {:?}", info)
+            }
+            PostBody::Topic { channel, topic } => {
+                write!(f, "channel: {:?}, topic: {:?}", channel, topic)
+            }
+            PostBody::Join { channel } => {
+                write!(f, "channel: {:?}", channel)
+            }
+            PostBody::Leave { channel } => {
+                write!(f, "channel: {:?}", channel)
+            }
+            PostBody::Unrecognized { post_type: _ } => {
+                write!(f, "post_type: unrecognized")
+            }
+        }
+    }
+}
+
 /// A complete post including header and body values.
 #[derive(Clone, Debug)]
 pub struct Post {
@@ -111,17 +161,72 @@ impl Post {
         Post { header, body }
     }
 
-    /// Construct a text `Post` with the given parameters.
+    /// Construct an unsigned text `Post` with the given parameters.
     pub fn text(
         public_key: [u8; 32],
-        signature: [u8; 64],
         links: Vec<Hash>,
         timestamp: u64,
         channel: Channel,
         text: Text,
     ) -> Self {
-        let header = PostHeader::new(public_key, signature, links, TEXT_POST, timestamp);
+        let header = PostHeader::new(public_key, [0; 64], links, TEXT_POST, timestamp);
         let body = PostBody::Text { channel, text };
+
+        Post { header, body }
+    }
+
+    /// Construct an unsigned delete `Post` with the given parameters.
+    pub fn delete(
+        public_key: [u8; 32],
+        links: Vec<Hash>,
+        timestamp: u64,
+        hashes: Vec<Hash>,
+    ) -> Self {
+        let header = PostHeader::new(public_key, [0; 64], links, DELETE_POST, timestamp);
+        let body = PostBody::Delete { hashes };
+
+        Post { header, body }
+    }
+
+    /// Construct an unsigned info `Post` with the given parameters.
+    pub fn info(
+        public_key: [u8; 32],
+        links: Vec<Hash>,
+        timestamp: u64,
+        info: Vec<UserInfo>,
+    ) -> Self {
+        let header = PostHeader::new(public_key, [0; 64], links, INFO_POST, timestamp);
+        let body = PostBody::Info { info };
+
+        Post { header, body }
+    }
+
+    /// Construct an unsigned topic `Post` with the given parameters.
+    pub fn topic(
+        public_key: [u8; 32],
+        links: Vec<Hash>,
+        timestamp: u64,
+        channel: Channel,
+        topic: Topic,
+    ) -> Self {
+        let header = PostHeader::new(public_key, [0; 64], links, TOPIC_POST, timestamp);
+        let body = PostBody::Topic { channel, topic };
+
+        Post { header, body }
+    }
+
+    /// Construct an unsigned join `Post` with the given parameters.
+    pub fn join(public_key: [u8; 32], links: Vec<Hash>, timestamp: u64, channel: Channel) -> Self {
+        let header = PostHeader::new(public_key, [0; 64], links, JOIN_POST, timestamp);
+        let body = PostBody::Join { channel };
+
+        Post { header, body }
+    }
+
+    /// Construct an unsigned leave `Post` with the given parameters.
+    pub fn leave(public_key: [u8; 32], links: Vec<Hash>, timestamp: u64, channel: Channel) -> Self {
+        let header = PostHeader::new(public_key, [0; 64], links, LEAVE_POST, timestamp);
+        let body = PostBody::Leave { channel };
 
         Post { header, body }
     }
@@ -219,6 +324,13 @@ impl Post {
             (Some(pk), Ok(sig)) => sign::verify_detached(&sig, &buf[32 + 64..], &pk),
             _ => false,
         }
+    }
+}
+
+/// Print a post with byte arrays formatted as hex strings.
+impl fmt::Display for Post {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{{ {}, {} }}", &self.header, &self.body)
     }
 }
 
