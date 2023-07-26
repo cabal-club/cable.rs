@@ -33,6 +33,7 @@ use crate::{store::Store, stream::PostStream};
 const TTL: u8 = 0;
 
 pub type PeerId = usize;
+pub type PeerRequestMap = HashMap<PeerId, Vec<(ReqId, ChannelOptions)>>;
 
 /// The manager for a single cable instance.
 #[derive(Clone)]
@@ -47,14 +48,11 @@ pub struct CableManager<S: Store> {
     last_req_id: Arc<RwLock<u32>>,
     /// Active inbound requests to which the local peer is listening and
     /// responding.
-    // TODO: Consider renaming `inbound_requests`, `active_requests` or
-    // `remote_requests`.
-    listening: Arc<RwLock<HashMap<PeerId, Vec<(ReqId, ChannelOptions)>>>>,
+    inbound_requests: Arc<RwLock<PeerRequestMap>>,
     /// Post hashes which have been requested from remote peers by the local peer.
     requested: Arc<RwLock<HashSet<Hash>>>,
     /// Active outbound requests (includes requests of local and remote origin).
-    // TODO: Consider renaming `outbound_requests`.
-    open_requests: Arc<RwLock<HashMap<ReqId, Message>>>,
+    outbound_requests: Arc<RwLock<HashMap<ReqId, Message>>>,
 }
 
 impl<S> CableManager<S>
@@ -67,9 +65,9 @@ where
             peers: Arc::new(RwLock::new(HashMap::new())),
             last_peer_id: Arc::new(RwLock::new(0)),
             last_req_id: Arc::new(RwLock::new(0)),
-            listening: Arc::new(RwLock::new(HashMap::new())),
+            inbound_requests: Arc::new(RwLock::new(HashMap::new())),
             requested: Arc::new(RwLock::new(HashSet::new())),
-            open_requests: Arc::new(RwLock::new(HashMap::new())),
+            outbound_requests: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -108,8 +106,8 @@ where
         // Insert the post into the local store.
         self.store.insert_post(&post).await?;
 
-        // Iterate over all peers and requests to whom we are listening.
-        for (peer_id, reqs) in self.listening.read().await.iter() {
+        // Iterate over all inbound peer requests.
+        for (peer_id, reqs) in self.inbound_requests.read().await.iter() {
             // Iterate over peer requests.
             for (req_id, opts) in reqs {
                 let limit = opts.limit.min(4096);
@@ -172,9 +170,9 @@ where
                     self.send(peer_id, &response).await?
                 }
                 RequestBody::Cancel { cancel_id } => {
-                    // Remove the request from the list of open requests.
+                    // Remove the request from the list of outbound requests.
                     // The associated message will no longer be sent to peers.
-                    self.open_requests.write().await.remove(cancel_id);
+                    self.outbound_requests.write().await.remove(cancel_id);
 
                     // TODO: Must be forwarded to all peers to whom the
                     // original request was forwarded.
@@ -213,9 +211,9 @@ where
                     // the end time has been set to 0 (i.e. keep this request
                     // alive and send new messages as they become available).
                     if *time_end == 0 {
-                        let mut w = self.listening.write().await;
-                        if let Some(listeners) = w.get_mut(&peer_id) {
-                            listeners.push((req_id, opts));
+                        let mut w = self.inbound_requests.write().await;
+                        if let Some(peer_requests) = w.get_mut(&peer_id) {
+                            peer_requests.push((req_id, opts));
                         } else {
                             w.insert(peer_id, vec![(req_id, opts)]);
                         }
@@ -375,7 +373,7 @@ where
             channel_opts.to_owned(),
         );
 
-        self.open_requests
+        self.outbound_requests
             .write()
             .await
             .insert(req_id_bytes, request.clone());
@@ -439,8 +437,8 @@ where
         // Insert the peer ID and channel sender into the list of peers.
         self.peers.write().await.insert(peer_id, send);
 
-        // Write all open request messages to the stream.
-        for msg in self.open_requests.read().await.values() {
+        // Write all outbound request messages to the stream.
+        for msg in self.outbound_requests.read().await.values() {
             stream.write_all(&msg.to_bytes()?).await?;
         }
 

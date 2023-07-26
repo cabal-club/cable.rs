@@ -24,6 +24,19 @@ use crate::stream::{HashStream, LiveStream, PostStream};
 /// A public-private keypair.
 pub type Keypair = ([u8; 32], [u8; 64]);
 
+/// A `HashMap` of posts with a key of channel name and a value of a `BTreeMap`.
+/// The `BTreeMap` has a key of timestamp and value of a `Vec` of posts.
+pub type PostMap = HashMap<Channel, BTreeMap<u64, Vec<Post>>>;
+
+/// A `HashMap` of post hashes with a key of channel name and a value of a
+/// `BTreeMap`. The `BTreeMap` has a key of timestamp and value of a `Vec`
+/// of post hashes.
+pub type PostHashMap = HashMap<Channel, BTreeMap<u64, Vec<Hash>>>;
+
+/// A `HashMap` of live streams with a key of channel name and a value
+/// of a `Vec` of streams (wrapped in an `Arc` and `RwLock`).
+pub type LiveStreamMap = HashMap<Channel, Arc<RwLock<Vec<LiveStream>>>>;
+
 #[async_trait::async_trait]
 /// Storage trait with methods for storing and retrieving cryptographic
 /// keypairs, hashes and posts.
@@ -94,10 +107,10 @@ pub struct MemoryStore {
     channels: Arc<RwLock<BTreeSet<Channel>>>,
     /// All posts in the store divided according to channel (the outer key)
     /// and indexed by timestamp (the inner key).
-    posts: Arc<RwLock<HashMap<Channel, BTreeMap<u64, Vec<Post>>>>>,
+    posts: Arc<RwLock<PostMap>>,
     /// All post hashes in the store divided according to channel (the outer
     /// key) and indexed by timestamp (the inner key).
-    post_hashes: Arc<RwLock<HashMap<Channel, BTreeMap<u64, Vec<Hash>>>>>,
+    post_hashes: Arc<RwLock<PostHashMap>>,
     /// Binary payloads for all posts in the store, indexed by the post hash.
     post_payloads: Arc<RwLock<HashMap<Hash, Payload>>>,
     /// An empty `BTreeMap` of posts, indexed by timestamp.
@@ -105,7 +118,7 @@ pub struct MemoryStore {
     /// An empty `BTreeMap` of post hashes, indexed by timestamp.
     empty_hash_bt: BTreeMap<u64, Vec<Hash>>,
     /// All active live streams, indexed by channel.
-    live_streams: Arc<RwLock<HashMap<Channel, Arc<RwLock<Vec<LiveStream>>>>>>,
+    live_streams: Arc<RwLock<LiveStreamMap>>,
     /// The unique identifier of a live stream.
     live_stream_id: Arc<Mutex<usize>>,
 }
