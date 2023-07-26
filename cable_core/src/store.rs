@@ -13,9 +13,8 @@ use async_std::{
     task,
 };
 use cable::{
-    error::Error,
     post::{Post, PostBody},
-    Channel, ChannelOptions, Hash, Payload,
+    Channel, ChannelOptions, Error, Hash, Payload,
 };
 use desert::ToBytes;
 use sodiumoxide::crypto;
