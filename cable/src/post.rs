@@ -21,7 +21,7 @@ use sodiumoxide::{
 use crate::{
     constants::{DELETE_POST, INFO_POST, JOIN_POST, LEAVE_POST, TEXT_POST, TOPIC_POST},
     error::{CableErrorKind, Error},
-    Channel, Hash, Text, Topic, UserInfo,
+    validation, Channel, Hash, Text, Topic, UserInfo,
 };
 
 #[derive(Clone, Debug)]
@@ -524,7 +524,7 @@ impl FromBytes for Post {
                 let channel =
                     String::from_utf8(buf[offset..offset + channel_len as usize].to_vec())?;
                 // Validate the length of the channel name.
-                crate::validate_channel(&channel)?;
+                validation::validate_channel(&channel)?;
                 // Increment the offset.
                 offset += channel_len as usize;
 
@@ -612,7 +612,7 @@ impl FromBytes for Post {
                 let channel =
                     String::from_utf8(buf[offset..offset + channel_len as usize].to_vec())?;
                 // Validate the length of the channel name.
-                crate::validate_channel(&channel)?;
+                validation::validate_channel(&channel)?;
                 // Increment the offset.
                 offset += channel_len as usize;
 
@@ -623,7 +623,7 @@ impl FromBytes for Post {
                 // Read the topic bytes.
                 let topic = String::from_utf8(buf[offset..offset + topic_len as usize].to_vec())?;
                 // Validate the length of the topic.
-                crate::validate_topic(&topic)?;
+                validation::validate_topic(&topic)?;
                 // Increment the offset.
                 offset += topic_len as usize;
 
@@ -638,7 +638,7 @@ impl FromBytes for Post {
                 let channel =
                     String::from_utf8(buf[offset..offset + channel_len as usize].to_vec())?;
                 // Validate the length of the channel name.
-                crate::validate_channel(&channel)?;
+                validation::validate_channel(&channel)?;
                 // Increment the offset.
                 offset += channel_len as usize;
 
@@ -653,7 +653,7 @@ impl FromBytes for Post {
                 let channel =
                     String::from_utf8(buf[offset..offset + channel_len as usize].to_vec())?;
                 // Validate the length of the channel name.
-                crate::validate_channel(&channel)?;
+                validation::validate_channel(&channel)?;
                 // Increment the offset.
                 offset += channel_len as usize;
 
