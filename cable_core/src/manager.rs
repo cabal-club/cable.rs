@@ -15,10 +15,8 @@ use async_std::{
 };
 use cable::{
     constants::NO_CIRCUIT,
-    error::Error,
     message::{Message, MessageBody, MessageHeader, RequestBody, ResponseBody},
-    post::Post,
-    Channel, ChannelOptions, Hash, ReqId,
+    Channel, ChannelOptions, Error, Hash, Post, ReqId,
 };
 use desert::{FromBytes, ToBytes};
 use futures::io::{AsyncRead, AsyncWrite};

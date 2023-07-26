@@ -10,7 +10,7 @@ use async_std::{
     task,
     task::{Context, Poll, Waker},
 };
-use cable::{error::Error, post::Post, ChannelOptions, Hash};
+use cable::{ChannelOptions, Error, Hash, Post};
 
 /// An asynchronous stream of posts.
 pub type PostStream<'a> = Box<dyn Stream<Item = Result<Post, Error>> + Unpin + Send + 'a>;
