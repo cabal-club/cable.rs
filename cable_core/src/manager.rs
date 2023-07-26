@@ -16,7 +16,7 @@ use async_std::{
 use cable::{
     constants::NO_CIRCUIT,
     message::{Message, MessageBody, MessageHeader, RequestBody, ResponseBody},
-    Channel, ChannelOptions, Error, Hash, Post, ReqId,
+    Channel, ChannelOptions, Error, Hash, Post, ReqId, Timestamp, UserInfo,
 };
 use desert::{FromBytes, ToBytes};
 use futures::io::{AsyncRead, AsyncWrite};
@@ -32,7 +32,12 @@ use crate::{store::Store, stream::PostStream};
 // status.
 const TTL: u8 = 0;
 
+/// A locally-defined peer ID used to track requests.
 pub type PeerId = usize;
+
+/// A `HashMap` of peer requests with a key of peer ID and a value of a `Vec`
+/// of request ID and channel options.
+pub type PeerRequestMap = HashMap<PeerId, Vec<(ReqId, ChannelOptions)>>;
 
 /// The manager for a single cable instance.
 #[derive(Clone)]
@@ -47,14 +52,12 @@ pub struct CableManager<S: Store> {
     last_req_id: Arc<RwLock<u32>>,
     /// Active inbound requests to which the local peer is listening and
     /// responding.
-    // TODO: Consider renaming `inbound_requests`, `active_requests` or
-    // `remote_requests`.
-    listening: Arc<RwLock<HashMap<PeerId, Vec<(ReqId, ChannelOptions)>>>>,
-    /// Post hashes which have been requested from remote peers by the local peer.
+    inbound_requests: Arc<RwLock<PeerRequestMap>>,
+    /// Hashes of posts which have been requested from remote peers by the
+    /// local peer.
     requested: Arc<RwLock<HashSet<Hash>>>,
     /// Active outbound requests (includes requests of local and remote origin).
-    // TODO: Consider renaming `outbound_requests`.
-    open_requests: Arc<RwLock<HashMap<ReqId, Message>>>,
+    outbound_requests: Arc<RwLock<HashMap<ReqId, Message>>>,
 }
 
 impl<S> CableManager<S>
@@ -67,9 +70,9 @@ where
             peers: Arc::new(RwLock::new(HashMap::new())),
             last_peer_id: Arc::new(RwLock::new(0)),
             last_req_id: Arc::new(RwLock::new(0)),
-            listening: Arc::new(RwLock::new(HashMap::new())),
+            inbound_requests: Arc::new(RwLock::new(HashMap::new())),
             requested: Arc::new(RwLock::new(HashSet::new())),
-            open_requests: Arc::new(RwLock::new(HashMap::new())),
+            outbound_requests: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -78,22 +81,102 @@ impl<S> CableManager<S>
 where
     S: Store,
 {
+    // TODO: Add additional post helpers: delete, info, topic, join & leave.
+
+    /// Post header value generator.
+    async fn post_header_values(
+        &mut self,
+        channel: &Channel,
+    ) -> Result<([u8; 32], Vec<Hash>, Timestamp), Error> {
+        let public_key = self.get_public_key().await?;
+        let links = vec![self.get_link(channel).await?];
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs();
+
+        Ok((public_key, links, timestamp))
+    }
+
     /// Publish a new text post.
     pub async fn post_text<T: Into<String>, U: Into<String>>(
         &mut self,
         channel: T,
         text: U,
     ) -> Result<(), Error> {
-        let public_key = self.get_public_key().await?;
         let channel = channel.into();
-        let links = vec![self.get_link(&channel).await?];
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_secs();
+        let (public_key, links, timestamp) = self.post_header_values(&channel).await?;
         let text = text.into();
 
         // Construct a new text post.
         let post = Post::text(public_key, links, timestamp, channel, text);
+
+        self.post(post).await
+    }
+
+    /// Publish a new delete post with the given post hashes.
+    pub async fn post_delete(&mut self, hashes: Vec<Hash>) -> Result<(), Error> {
+        let public_key = self.get_public_key().await?;
+        let links = vec![];
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs();
+
+        // Construct a new delete post.
+        let post = Post::delete(public_key, links, timestamp, hashes);
+
+        self.post(post).await
+    }
+
+    /// Publish a new info post with the given name.
+    pub async fn post_info_name(&mut self, username: &str) -> Result<(), Error> {
+        let public_key = self.get_public_key().await?;
+        let links = vec![];
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs();
+
+        let name_info = UserInfo::name(username)?;
+
+        // Construct a new info post.
+        let post = Post::info(public_key, links, timestamp, vec![name_info]);
+
+        self.post(post).await
+    }
+
+    /// Publish a new topic post for the given channel.
+    pub async fn post_topic<T: Into<String>, U: Into<String>>(
+        &mut self,
+        channel: T,
+        topic: U,
+    ) -> Result<(), Error> {
+        let channel = channel.into();
+        let (public_key, links, timestamp) = self.post_header_values(&channel).await?;
+        let topic = topic.into();
+
+        // Construct a new topic post.
+        let post = Post::topic(public_key, links, timestamp, channel, topic);
+
+        self.post(post).await
+    }
+
+    /// Publish a new join post for the given channel.
+    pub async fn post_join<T: Into<String>>(&mut self, channel: T) -> Result<(), Error> {
+        let channel = channel.into();
+        let (public_key, links, timestamp) = self.post_header_values(&channel).await?;
+
+        // Construct a new join post.
+        let post = Post::join(public_key, links, timestamp, channel);
+
+        self.post(post).await
+    }
+
+    /// Publish a new leave post for the given channel.
+    pub async fn post_leave<T: Into<String>>(&mut self, channel: T) -> Result<(), Error> {
+        let channel = channel.into();
+        let (public_key, links, timestamp) = self.post_header_values(&channel).await?;
+
+        // Construct a new leave post.
+        let post = Post::leave(public_key, links, timestamp, channel);
 
         self.post(post).await
     }
@@ -108,15 +191,18 @@ where
         // Insert the post into the local store.
         self.store.insert_post(&post).await?;
 
-        // Iterate over all peers and requests to whom we are listening.
-        for (peer_id, reqs) in self.listening.read().await.iter() {
+        // TODO: Consider breaking the following code into a separate method.
+        // I.e. `send_post_hashes()` or similar.
+
+        // Iterate over all inbound peer requests.
+        for (peer_id, reqs) in self.inbound_requests.read().await.iter() {
             // Iterate over peer requests.
             for (req_id, opts) in reqs {
                 let limit = opts.limit.min(4096);
                 let mut hashes = vec![];
 
                 {
-                    // Get all posts matching the request parameters.
+                    // Get all post hashes matching the request parameters.
                     let mut stream = self.store.get_post_hashes(opts).await?;
                     while let Some(result) = stream.next().await {
                         hashes.push(result?);
@@ -172,9 +258,9 @@ where
                     self.send(peer_id, &response).await?
                 }
                 RequestBody::Cancel { cancel_id } => {
-                    // Remove the request from the list of open requests.
+                    // Remove the request from the list of outbound requests.
                     // The associated message will no longer be sent to peers.
-                    self.open_requests.write().await.remove(cancel_id);
+                    self.outbound_requests.write().await.remove(cancel_id);
 
                     // TODO: Must be forwarded to all peers to whom the
                     // original request was forwarded.
@@ -213,9 +299,9 @@ where
                     // the end time has been set to 0 (i.e. keep this request
                     // alive and send new messages as they become available).
                     if *time_end == 0 {
-                        let mut w = self.listening.write().await;
-                        if let Some(listeners) = w.get_mut(&peer_id) {
-                            listeners.push((req_id, opts));
+                        let mut w = self.inbound_requests.write().await;
+                        if let Some(peer_requests) = w.get_mut(&peer_id) {
+                            peer_requests.push((req_id, opts));
                         } else {
                             w.insert(peer_id, vec![(req_id, opts)]);
                         }
@@ -375,7 +461,7 @@ where
             channel_opts.to_owned(),
         );
 
-        self.open_requests
+        self.outbound_requests
             .write()
             .await
             .insert(req_id_bytes, request.clone());
@@ -439,8 +525,8 @@ where
         // Insert the peer ID and channel sender into the list of peers.
         self.peers.write().await.insert(peer_id, send);
 
-        // Write all open request messages to the stream.
-        for msg in self.open_requests.read().await.values() {
+        // Write all outbound request messages to the stream.
+        for msg in self.outbound_requests.read().await.values() {
             stream.write_all(&msg.to_bytes()?).await?;
         }
 
