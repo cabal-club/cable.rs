@@ -49,6 +49,14 @@ let post_request_bytes = post_request.to_bytes()?;
 let decoded_post_request = Message::from_bytes(&post_request_bytes)?;
 ```
 
+## Documentation
+
+**Compile the documentation and open it in a browser.**
+
+`cargo doc --open`
+
+Additional documentation can be found as code comments in the source.
+
 ## Tests
 
 **Run the test suite.**

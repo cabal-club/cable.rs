@@ -4,3 +4,6 @@
 mod manager;
 mod store;
 mod stream;
+
+pub use manager::CableManager;
+pub use store::MemoryStore;
