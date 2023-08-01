@@ -99,7 +99,6 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
     async fn want(&mut self, hashes: &[Hash]) -> Result<Vec<Hash>, Error>;
 
     /// Retrieve the post payloads for all posts represented by the given hashes.
-    // TODO: Consider renaming to `get_encoded_posts()`.
     async fn get_post_payloads(&mut self, hashes: &[Hash]) -> Result<Vec<Payload>, Error>;
 }
 
@@ -175,9 +174,6 @@ impl Store for MemoryStore {
         } else {
             None
         }
-
-        // TODO: Return the latest post hash, if available, instead of zeros.
-        //Ok([0; 32])
     }
 
     async fn insert_channels(&mut self, channels: &[Channel]) -> Result<(), Error> {
@@ -281,6 +277,7 @@ impl Store for MemoryStore {
                             .insert(hash, post.to_bytes()?);
                     }
                 }
+
                 // If we have open live streams matching the channel to which
                 // this post was published...
                 if let Some(senders) = self.live_streams.read().await.get(channel) {
