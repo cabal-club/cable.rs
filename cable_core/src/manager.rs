@@ -40,6 +40,23 @@ pub type PeerId = usize;
 /// of request ID and channel options.
 pub type PeerRequestMap = HashMap<PeerId, Vec<(ReqId, ChannelOptions)>>;
 
+/// The origin of a request.
+enum RequestOrigin {
+    /// Local request.
+    Local,
+    /// Remote request (from a peer).
+    Remote,
+}
+
+impl RequestOrigin {
+    fn is_local(&self) -> bool {
+        match self {
+            RequestOrigin::Local => true,
+            RequestOrigin::Remote => false,
+        }
+    }
+}
+
 /// The manager for a single cable instance.
 #[derive(Clone)]
 pub struct CableManager<S: Store> {
@@ -51,14 +68,18 @@ pub struct CableManager<S: Store> {
     last_peer_id: Arc<RwLock<PeerId>>,
     /// The most recently assigned request ID.
     last_req_id: Arc<RwLock<u32>>,
-    /// Active inbound requests to which the local peer is listening and
+    /// Live inbound requests to which the local peer is listening and
     /// responding.
-    inbound_requests: Arc<RwLock<PeerRequestMap>>,
+    ///
+    /// These are peer-generated channel time range requests with an end time
+    /// of 0, indicating that the peer wishes to receive new post hashes as they
+    /// become known.
+    live_requests: Arc<RwLock<PeerRequestMap>>,
     /// Hashes of posts which have been requested from remote peers by the
     /// local peer.
     requested: Arc<RwLock<HashSet<Hash>>>,
     /// Active outbound requests (includes requests of local and remote origin).
-    outbound_requests: Arc<RwLock<HashMap<ReqId, Message>>>,
+    outbound_requests: Arc<RwLock<HashMap<ReqId, (RequestOrigin, Message)>>>,
 }
 
 impl<S> CableManager<S>
@@ -71,7 +92,7 @@ where
             peers: Arc::new(RwLock::new(HashMap::new())),
             last_peer_id: Arc::new(RwLock::new(0)),
             last_req_id: Arc::new(RwLock::new(0)),
-            inbound_requests: Arc::new(RwLock::new(HashMap::new())),
+            live_requests: Arc::new(RwLock::new(HashMap::new())),
             requested: Arc::new(RwLock::new(HashSet::new())),
             outbound_requests: Arc::new(RwLock::new(HashMap::new())),
         }
@@ -202,11 +223,11 @@ where
         Ok(())
     }
 
-    /// Send post hashes matching peer request parameters for all inbound
+    /// Send post hashes matching peer request parameters for all live
     /// requests.
     async fn send_post_hashes(&mut self) -> Result<(), Error> {
-        // Iterate over all inbound peer requests.
-        for (peer_id, reqs) in self.inbound_requests.read().await.iter() {
+        // Iterate over all live peer requests.
+        for (peer_id, reqs) in self.live_requests.read().await.iter() {
             // Iterate over peer requests.
             for (req_id, opts) in reqs {
                 let limit = opts.limit.min(4096);
@@ -261,8 +282,11 @@ where
 
         // TODO: Forward requests.
         match &msg.body {
-            MessageBody::Request { ttl: _, body } => match body {
+            MessageBody::Request { ttl, body } => match body {
                 RequestBody::Post { hashes } => {
+                    // TODO: If the TTL > 0, decrement it and add the message
+                    // to `outbound_requests`...
+
                     let posts = self.store.get_post_payloads(hashes).await?;
                     let response = Message::post_response(circuit_id, req_id, posts);
 
@@ -282,6 +306,9 @@ where
                     time_end,
                     limit,
                 } => {
+                    // TODO: If the TTL > 0, decrement it and add the message
+                    // to `outbound_requests`...
+
                     let opts = ChannelOptions::new(channel, *time_start, *time_end, *limit);
                     let n_limit = (*limit).min(4096);
 
@@ -305,11 +332,11 @@ where
                     // the end time has been set to 0 (i.e. keep this request
                     // alive and send new messages as they become available).
                     if *time_end == 0 {
-                        let mut inbound_requests = self.inbound_requests.write().await;
-                        if let Some(peer_requests) = inbound_requests.get_mut(&peer_id) {
+                        let mut live_requests = self.live_requests.write().await;
+                        if let Some(peer_requests) = live_requests.get_mut(&peer_id) {
                             peer_requests.push((req_id, opts));
                         } else {
-                            inbound_requests.insert(peer_id, vec![(req_id, opts)]);
+                            live_requests.insert(peer_id, vec![(req_id, opts)]);
                         }
                     }
 
@@ -319,6 +346,9 @@ where
                     channel: _,
                     future: _,
                 } => {
+                    // TODO: If the TTL > 0, decrement it and add the message
+                    // to `outbound_requests`...
+
                     /*
                     TODO: We will require channel state indexes before this
                     handler can be completed.
@@ -331,6 +361,9 @@ where
                     */
                 }
                 RequestBody::ChannelList { skip, limit } => {
+                    // TODO: If the TTL > 0, decrement it and add the message
+                    // to `outbound_requests`...
+
                     let n_limit = (*limit).min(4096);
 
                     let mut all_channels = self.store.get_channels().await?;
@@ -472,7 +505,7 @@ where
         self.outbound_requests
             .write()
             .await
-            .insert(req_id_bytes, request.clone());
+            .insert(req_id_bytes, (RequestOrigin::Local, request.clone()));
 
         self.broadcast(&request).await?;
 
@@ -480,19 +513,10 @@ where
     }
 
     /// Create a cancel request for all active outbound channel time range
-    /// requests matching the given channel name and broadcast to all peers.
+    /// requests originating locally and matching the given channel name.
+    /// Broadcast the cancel request(s) to all peers.
     pub async fn close_channel(&self, channel: &String) -> Result<(), Error> {
-        // TODO: Ensure that the behaviour of this method is correct.
-        //
-        // It is a heavy-handed solution which will likely result in erroneous
-        // cancel requests being generated for channel time requests
-        // originating from remote peers.
-        //
-        // We really need finer granularity to allow matching on only those
-        // requests which originated locally.
-
         let close_channel = channel;
-        let public_key = self.get_public_key()?;
 
         let mut outbound_requests = self.outbound_requests.write().await;
 
@@ -500,31 +524,34 @@ where
         // requests with channel names matching the given channel.
         let mut channel_req_ids = Vec::new();
 
-        for (req_id, msg) in outbound_requests.iter() {
+        for (req_id, (request_origin, msg)) in outbound_requests.iter() {
             if let MessageBody::Request {
                 body: RequestBody::ChannelTimeRange { channel, .. },
                 ..
             } = &msg.body
             {
-                if channel == close_channel {
+                // Ignore remotely-generated requests and non-matching channel
+                // names.
+                if request_origin.is_local() && channel == close_channel {
                     channel_req_ids.push(*req_id);
                 }
             }
         }
 
         for channel_req_id in channel_req_ids {
-            outbound_requests.remove(&channel_req_id);
-
             let (_req_id, req_id_bytes) = self.new_req_id().await?;
 
             let request = Message::cancel_request(NO_CIRCUIT, req_id_bytes, TTL, channel_req_id);
 
+            // TODO: Do we really want to store a cancel request?
             self.outbound_requests
                 .write()
                 .await
-                .insert(req_id_bytes, request.clone());
+                .insert(req_id_bytes, (RequestOrigin::Local, request.clone()));
 
             self.broadcast(&request).await?;
+
+            outbound_requests.remove(&channel_req_id);
         }
 
         Ok(())
@@ -577,7 +604,7 @@ where
         self.peers.write().await.insert(peer_id, send);
 
         // Write all outbound request messages to the stream.
-        for msg in self.outbound_requests.read().await.values() {
+        for (_, msg) in self.outbound_requests.read().await.values() {
             stream.write_all(&msg.to_bytes()?).await?;
         }
 
