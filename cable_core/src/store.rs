@@ -63,9 +63,13 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
         }
     }
 
-    /// Retrieve the hash of the most recently published post in the given
-    /// channel.
-    async fn get_latest_hash(&mut self, channel: &Channel) -> Result<Hash, Error>;
+    /// Retrieve the hash(es) of the most recently published post(s) in the
+    /// given channel.
+    ///
+    /// More than one hash will be returned if several posts were
+    /// made to the same channel at the same time. Usually though, only one
+    /// hash or no hashes will be returned.
+    async fn get_latest_hashes(&mut self, channel: &Channel) -> Option<Vec<Hash>>;
 
     /// Insert the given channels into the store.
     async fn insert_channels(&mut self, channels: &[Channel]) -> Result<(), Error>;
@@ -158,9 +162,22 @@ impl Store for MemoryStore {
         Ok(())
     }
 
-    async fn get_latest_hash(&mut self, _channel: &Channel) -> Result<Hash, Error> {
+    async fn get_latest_hashes(&mut self, channel: &Channel) -> Option<Vec<Hash>> {
+        // Open the post hashes store for reading.
+        let post_hashes_map = self.post_hashes.read().await;
+
+        // Get the BTree associated with the given channel.
+        if let Some(post_hashes_btree) = post_hashes_map.get(channel) {
+            // Return the most recently added hash(es).
+            post_hashes_btree
+                .last_key_value()
+                .map(|(_, hash)| hash.to_owned())
+        } else {
+            None
+        }
+
         // TODO: Return the latest post hash, if available, instead of zeros.
-        Ok([0; 32])
+        //Ok([0; 32])
     }
 
     async fn insert_channels(&mut self, channels: &[Channel]) -> Result<(), Error> {
