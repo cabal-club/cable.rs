@@ -272,6 +272,18 @@ where
         Ok(())
     }
 
+    /// Decrement the TTL of a request message and write it to the outbound
+    /// requests store.
+    async fn decrement_ttl_and_write_to_outbound(&self, req_id: ReqId, msg: &Message) {
+        let mut request = msg.clone();
+        request.decrement_ttl();
+
+        self.outbound_requests
+            .write()
+            .await
+            .insert(req_id, (RequestOrigin::Remote, request));
+    }
+
     /// Handle a request or response message.
     pub async fn handle(&mut self, peer_id: usize, msg: &Message) -> Result<(), Error> {
         let MessageHeader {
@@ -284,8 +296,14 @@ where
         match &msg.body {
             MessageBody::Request { ttl, body } => match body {
                 RequestBody::Post { hashes } => {
-                    // TODO: If the TTL > 0, decrement it and add the message
-                    // to `outbound_requests`...
+                    // If the request TTL is > 0, decrement it and add the
+                    // message to `outbound_requests` so that it will be
+                    // forwarded to other connected peers.
+                    //
+                    // TODO: Set the TTL to 16 if it is > 16.
+                    if *ttl > 0 {
+                        self.decrement_ttl_and_write_to_outbound(req_id, msg).await;
+                    }
 
                     let posts = self.store.get_post_payloads(hashes).await?;
                     let response = Message::post_response(circuit_id, req_id, posts);
@@ -293,12 +311,13 @@ where
                     self.send(peer_id, &response).await?
                 }
                 RequestBody::Cancel { cancel_id } => {
+                    if *ttl > 0 {
+                        self.decrement_ttl_and_write_to_outbound(req_id, msg).await;
+                    }
+
                     // Remove the request from the list of outbound requests.
                     // The associated message will no longer be sent to peers.
                     self.outbound_requests.write().await.remove(cancel_id);
-
-                    // TODO: Must be forwarded to all peers to whom the
-                    // original request was forwarded.
                 }
                 RequestBody::ChannelTimeRange {
                     channel,
@@ -306,8 +325,9 @@ where
                     time_end,
                     limit,
                 } => {
-                    // TODO: If the TTL > 0, decrement it and add the message
-                    // to `outbound_requests`...
+                    if *ttl > 0 {
+                        self.decrement_ttl_and_write_to_outbound(req_id, msg).await;
+                    }
 
                     let opts = ChannelOptions::new(channel, *time_start, *time_end, *limit);
                     let n_limit = (*limit).min(4096);
@@ -346,8 +366,9 @@ where
                     channel: _,
                     future: _,
                 } => {
-                    // TODO: If the TTL > 0, decrement it and add the message
-                    // to `outbound_requests`...
+                    if *ttl > 0 {
+                        self.decrement_ttl_and_write_to_outbound(req_id, msg).await;
+                    }
 
                     /*
                     TODO: We will require channel state indexes before this
@@ -361,8 +382,9 @@ where
                     */
                 }
                 RequestBody::ChannelList { skip, limit } => {
-                    // TODO: If the TTL > 0, decrement it and add the message
-                    // to `outbound_requests`...
+                    if *ttl > 0 {
+                        self.decrement_ttl_and_write_to_outbound(req_id, msg).await;
+                    }
 
                     let n_limit = (*limit).min(4096);
 
@@ -603,9 +625,18 @@ where
         // Insert the peer ID and channel sender into the list of peers.
         self.peers.write().await.insert(peer_id, send);
 
-        // Write all outbound request messages to the stream.
-        for (_, msg) in self.outbound_requests.read().await.values() {
-            stream.write_all(&msg.to_bytes()?).await?;
+        // Write all outbound request messages to the stream, as long as the
+        // message TTL is not 0. If the TTL is 0, remove it from the outbound
+        // requests store.
+        for (req_id, (_, msg)) in self.outbound_requests.read().await.iter() {
+            if let MessageBody::Request { ttl, .. } = msg.body {
+                if ttl == 0 {
+                    // The TTL for this request has been exhausted.
+                    self.outbound_requests.write().await.remove(req_id);
+                } else {
+                    stream.write_all(&msg.to_bytes()?).await?;
+                }
+            }
         }
 
         let write_to_stream_res = {
