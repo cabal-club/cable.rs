@@ -10,6 +10,7 @@ cable = { path = "../cable" }
 futures = "0.3.28"
 desert = { path = "../desert" }
 length-prefixed-stream = { path = "../length_prefixed_stream" }
+log = "0.4.19"
 signature = "2.1.0"
 sodiumoxide = "0.2.7"
 

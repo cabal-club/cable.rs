@@ -33,6 +33,14 @@ impl Message {
         Message { header, body }
     }
 
+    /// Decrement the TTL of a request-type message by one.
+    pub fn decrement_ttl(&mut self) {
+        // TODO: Ensure this works as intended.
+        if let MessageBody::Request { ref mut ttl, .. } = self.body {
+            *ttl -= 1
+        }
+    }
+
     /// Return the numeric type identifier for the message.
     pub fn message_type(&self) -> u64 {
         match &self.body {
