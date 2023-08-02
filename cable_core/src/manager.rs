@@ -19,7 +19,6 @@ use cable::{
     Channel, ChannelOptions, Error, Hash, Post, ReqId, Timestamp, UserInfo,
 };
 use desert::{FromBytes, ToBytes};
-use fastrand;
 use futures::io::{AsyncRead, AsyncWrite};
 use length_prefixed_stream::{decode_with_options, DecodeOptions};
 use log::debug;
@@ -69,6 +68,10 @@ pub struct CableManager<S: Store> {
     last_peer_id: Arc<RwLock<PeerId>>,
     /// The most recently assigned request ID.
     last_req_id: Arc<RwLock<u32>>,
+    /// Requests of remote origin which have been forwarded to other peers.
+    forwarded_requests: Arc<RwLock<HashMap<ReqId, Vec<PeerId>>>>,
+    /// Request IDs of requests which have been handled.
+    handled_requests: Arc<RwLock<HashSet<ReqId>>>,
     /// Live inbound requests to which the local peer is listening and
     /// responding.
     ///
@@ -76,13 +79,11 @@ pub struct CableManager<S: Store> {
     /// of 0, indicating that the peer wishes to receive new post hashes as they
     /// become known.
     live_requests: Arc<RwLock<PeerRequestMap>>,
+    /// Active outbound requests (includes requests of local and remote origin).
+    outbound_requests: Arc<RwLock<HashMap<ReqId, (RequestOrigin, Message)>>>,
     /// Hashes of posts which have been requested from remote peers by the
     /// local peer.
     requested_posts: Arc<RwLock<HashSet<Hash>>>,
-    /// Active outbound requests (includes requests of local and remote origin).
-    outbound_requests: Arc<RwLock<HashMap<ReqId, (RequestOrigin, Message)>>>,
-    /// Requests of remote origin which have been forwarded to other peers.
-    forwarded_requests: Arc<RwLock<HashMap<ReqId, Vec<PeerId>>>>,
 }
 
 impl<S> CableManager<S>
@@ -96,10 +97,11 @@ where
             last_peer_id: Arc::new(RwLock::new(0)),
             // Generate a random u32 on startup to reduce chance of collisions.
             last_req_id: Arc::new(RwLock::new(fastrand::u32(..))),
-            live_requests: Arc::new(RwLock::new(HashMap::new())),
-            requested_posts: Arc::new(RwLock::new(HashSet::new())),
-            outbound_requests: Arc::new(RwLock::new(HashMap::new())),
             forwarded_requests: Arc::new(RwLock::new(HashMap::new())),
+            handled_requests: Arc::new(RwLock::new(HashSet::new())),
+            live_requests: Arc::new(RwLock::new(HashMap::new())),
+            outbound_requests: Arc::new(RwLock::new(HashMap::new())),
+            requested_posts: Arc::new(RwLock::new(HashSet::new())),
         }
     }
 }
@@ -297,12 +299,11 @@ where
             req_id,
         } = msg.header;
 
-        // TODO: Ignore this message if the request ID matches one we already
+        // Ignore this message if the request ID matches one we already
         // know about.
-        //
-        // Do we want to maintain a HashSet for this purpose
-        // (`handled_requests`) or can we infer it from the other sets?
-        // Ie. `live_requests` and `outbound_requests`.
+        if self.handled_requests.read().await.contains(&req_id) {
+            return Ok(());
+        }
 
         // TODO: Forward requests.
         match &msg.body {
@@ -489,6 +490,9 @@ where
             // Ignore unrecognized message type.
             MessageBody::Unrecognized { .. } => (),
         }
+
+        // Mark this request as "handled" (to prevent request loops).
+        self.handled_requests.write().await.insert(req_id);
 
         Ok(())
     }
