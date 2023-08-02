@@ -69,7 +69,7 @@ pub struct CableManager<S: Store> {
     /// The most recently assigned request ID.
     last_req_id: Arc<RwLock<u32>>,
     /// Requests of remote origin which have been forwarded to other peers.
-    forwarded_requests: Arc<RwLock<HashMap<ReqId, Vec<PeerId>>>>,
+    forwarded_requests: Arc<RwLock<HashMap<ReqId, HashSet<PeerId>>>>,
     /// Request IDs of requests which have been handled.
     handled_requests: Arc<RwLock<HashSet<ReqId>>>,
     /// Live inbound requests to which the local peer is listening and
@@ -324,9 +324,9 @@ where
                     self.send(peer_id, &response).await?
                 }
                 RequestBody::Cancel { cancel_id } => {
-                    if *ttl > 0 {
-                        self.decrement_ttl_and_write_to_outbound(req_id, msg).await;
-                    }
+                    // TTL is ignored for cancel requests so we decrement and
+                    // write the message without first checking the value.
+                    self.decrement_ttl_and_write_to_outbound(req_id, msg).await;
 
                     // Remove the request from the list of outbound requests.
                     // The associated message will no longer be sent to peers.
@@ -393,6 +393,20 @@ where
                     The latest of all users' post/join or post/leave posts to the channel.
                     The latest post/topic post made to the channel.
                     */
+
+                    /*
+                    // Add the peer and request ID to the request tracker if
+                    // the future field has been set to 1 (i.e. keep this request
+                    // alive and send new messages as they become available).
+                    if *future == 1 {
+                        let mut live_requests = self.live_requests.write().await;
+                        if let Some(peer_requests) = live_requests.get_mut(&peer_id) {
+                            peer_requests.push((req_id, opts));
+                        } else {
+                            live_requests.insert(peer_id, vec![(req_id, opts)]);
+                        }
+                    }
+                    */
                 }
                 RequestBody::ChannelList { skip, limit } => {
                     if *ttl > 0 {
@@ -420,11 +434,13 @@ where
                 ResponseBody::Hash { hashes } => {
                     let wanted_hashes = self.store.want(hashes).await?;
                     if !wanted_hashes.is_empty() {
+                        let (_, new_req_id) = self.new_req_id().await?;
+
                         // If a hash appears in our list of wanted hashed,
                         // send a request for the associated post.
                         let request = Message::post_request(
                             circuit_id,
-                            req_id,
+                            new_req_id,
                             TTL,
                             wanted_hashes.to_owned(),
                         );
@@ -622,11 +638,86 @@ where
         Ok(sk)
     }
 
+    /// Process all outbound requests, sending each one to the connected
+    /// peer if it meets certain requirements.
+    ///
+    /// This method takes into account the TTL of the request. It also ensures
+    /// that cancel requests are forwarded to peers to whom the referenced
+    /// request was previously sent.
+    pub async fn process_and_send_outbound_requests<T>(
+        &self,
+        mut stream: T,
+        peer_id: usize,
+    ) -> Result<(), Error>
+    where
+        T: AsyncRead + AsyncWrite + Clone + Unpin + Send + Sync + 'static,
+    {
+        'requests: for (req_id, (request_origin, msg)) in self.outbound_requests.read().await.iter()
+        {
+            if let MessageBody::Request { ttl, body } = &msg.body {
+                // If the outbound request is a cancel request originating
+                // remotely, check if we previously sent the referenced
+                // request to the connected peer. If so, forward the cancel
+                // request. If not, move on to the next request without sending
+                // this one.
+                if let RequestBody::Cancel { cancel_id } = body {
+                    if let RequestOrigin::Remote = request_origin {
+                        let mut forwarded_requests = self.forwarded_requests.write().await;
+                        if let Some(peers) = forwarded_requests.get_mut(cancel_id) {
+                            if peers.contains(&peer_id) {
+                                stream.write_all(&msg.to_bytes()?).await?;
+
+                                // Remove the connected peer from the set of
+                                // forwarded requests for the given cancel ID.
+                                peers.remove(&peer_id);
+
+                                // If the peer set for given cancel ID is
+                                // empty, remove the ID from the map of
+                                // forwarded requests.
+                                if peers.is_empty() {
+                                    forwarded_requests.remove(cancel_id);
+                                }
+                            } else {
+                                // Terminate the current iteration of the loop
+                                // and process the next request.
+                                continue 'requests;
+                            }
+                        }
+                    }
+                }
+                if *ttl == 0 {
+                    // The TTL for this request has been exhausted.
+                    self.outbound_requests.write().await.remove(req_id);
+                } else {
+                    // Send the message to the connected peer.
+                    stream.write_all(&msg.to_bytes()?).await?;
+
+                    // If the request originated remotely, add it to the list
+                    // of forwarded requests. This facilitates forwarding
+                    // cancel requests to these peers in the future, if
+                    // required.
+                    if let RequestOrigin::Remote = request_origin {
+                        let mut forwarded_requests = self.forwarded_requests.write().await;
+                        if let Some(peers) = forwarded_requests.get_mut(req_id) {
+                            peers.insert(peer_id);
+                        } else {
+                            let mut peer_set = HashSet::new();
+                            peer_set.insert(peer_id);
+                            forwarded_requests.insert(*req_id, peer_set);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Listen for incoming peer messages and respond with locally-generated
     /// messages.
     ///
     /// Decode each received message and pass it off to the handler.
-    pub async fn listen<T>(&self, mut stream: T) -> Result<(), Error>
+    pub async fn listen<T>(&self, stream: T) -> Result<(), Error>
     where
         T: AsyncRead + AsyncWrite + Clone + Unpin + Send + Sync + 'static,
     {
@@ -641,19 +732,9 @@ where
         // Insert the peer ID and channel sender into the list of peers.
         self.peers.write().await.insert(peer_id, send);
 
-        // Write all outbound request messages to the stream, as long as the
-        // message TTL is not 0. If the TTL is 0, remove it from the outbound
-        // requests store.
-        for (req_id, (_, msg)) in self.outbound_requests.read().await.iter() {
-            if let MessageBody::Request { ttl, .. } = msg.body {
-                if ttl == 0 {
-                    // The TTL for this request has been exhausted.
-                    self.outbound_requests.write().await.remove(req_id);
-                } else {
-                    stream.write_all(&msg.to_bytes()?).await?;
-                }
-            }
-        }
+        // Process and send outbound requests to the connected peer.
+        self.process_and_send_outbound_requests(stream.clone(), peer_id)
+            .await?;
 
         let write_to_stream_res = {
             let mut stream_c = stream.clone();
