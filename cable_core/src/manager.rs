@@ -19,6 +19,7 @@ use cable::{
     Channel, ChannelOptions, Error, Hash, Post, ReqId, Timestamp, UserInfo,
 };
 use desert::{FromBytes, ToBytes};
+use fastrand;
 use futures::io::{AsyncRead, AsyncWrite};
 use length_prefixed_stream::{decode_with_options, DecodeOptions};
 use log::debug;
@@ -77,9 +78,11 @@ pub struct CableManager<S: Store> {
     live_requests: Arc<RwLock<PeerRequestMap>>,
     /// Hashes of posts which have been requested from remote peers by the
     /// local peer.
-    requested: Arc<RwLock<HashSet<Hash>>>,
+    requested_posts: Arc<RwLock<HashSet<Hash>>>,
     /// Active outbound requests (includes requests of local and remote origin).
     outbound_requests: Arc<RwLock<HashMap<ReqId, (RequestOrigin, Message)>>>,
+    /// Requests of remote origin which have been forwarded to other peers.
+    forwarded_requests: Arc<RwLock<HashMap<ReqId, Vec<PeerId>>>>,
 }
 
 impl<S> CableManager<S>
@@ -91,10 +94,12 @@ where
             store,
             peers: Arc::new(RwLock::new(HashMap::new())),
             last_peer_id: Arc::new(RwLock::new(0)),
-            last_req_id: Arc::new(RwLock::new(0)),
+            // Generate a random u32 on startup to reduce chance of collisions.
+            last_req_id: Arc::new(RwLock::new(fastrand::u32(..))),
             live_requests: Arc::new(RwLock::new(HashMap::new())),
-            requested: Arc::new(RwLock::new(HashSet::new())),
+            requested_posts: Arc::new(RwLock::new(HashSet::new())),
             outbound_requests: Arc::new(RwLock::new(HashMap::new())),
+            forwarded_requests: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -292,6 +297,13 @@ where
             req_id,
         } = msg.header;
 
+        // TODO: Ignore this message if the request ID matches one we already
+        // know about.
+        //
+        // Do we want to maintain a HashSet for this purpose
+        // (`handled_requests`) or can we infer it from the other sets?
+        // Ie. `live_requests` and `outbound_requests`.
+
         // TODO: Forward requests.
         match &msg.body {
             MessageBody::Request { ttl, body } => match body {
@@ -419,7 +431,7 @@ where
                         self.send(peer_id, &request).await?;
 
                         // Update the list of requested posts.
-                        let mut requested_posts = self.requested.write().await;
+                        let mut requested_posts = self.requested_posts.write().await;
                         for hash in &wanted_hashes {
                             requested_posts.insert(*hash);
                         }
@@ -450,7 +462,7 @@ where
 
                         let post_hash = post.hash()?;
 
-                        let mut requested_posts = self.requested.write().await;
+                        let mut requested_posts = self.requested_posts.write().await;
                         // Check if this post was previously requested.
                         if !requested_posts.contains(&post_hash) {
                             // Skip this post if it was not requested.
