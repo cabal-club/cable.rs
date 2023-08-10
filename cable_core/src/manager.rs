@@ -826,12 +826,14 @@ mod test {
 
     use async_std::task;
     use cable::{
-        constants::{HASH_RESPONSE, NO_CIRCUIT},
+        constants::{HASH_RESPONSE, NO_CIRCUIT, POST_RESPONSE},
+        message::{MessageBody, ResponseBody},
         ChannelOptions, Error, Message,
     };
     use desert::{FromBytes, ToBytes};
     use futures::{AsyncReadExt, AsyncWriteExt};
     use hex::FromHex;
+    use log::debug;
     use mock_io::futures::{MockListener, MockStream};
 
     use crate::{CableManager, MemoryStore};
@@ -843,27 +845,35 @@ mod test {
 
     // Initialise the logger in test mode.
     fn init() {
-        let _ = env_logger::builder().is_test(true).try_init();
+        let _ = env_logger::builder().is_test(false).try_init();
     }
 
     // Run this single test with debug-level logging enabled:
-    // `RUST_LOG=cable_core=debug cargo test channel_time_range_request`
+    // `RUST_LOG=cable_core=debug cargo test request_response`
 
     #[async_std::test]
-    async fn channel_time_range_request() -> Result<(), Error> {
+    async fn request_response() -> Result<(), Error> {
+        // Initialise the logger.
         init();
 
+        // Create a store and a cable manager.
         let store = MemoryStore::default();
-        let mut peer = CableManager::new(store);
+        let mut cable = CableManager::new(store);
 
-        // Publish a test post to the "default" channel.
+        // Publish a test post to the "tao" channel.
         task::block_on(async {
-            peer.post_text("default", "meow?").await.unwrap();
+            cable
+                .post_text(
+                    "tao",
+                    "Need little, want less. Forget the rules. Be untroubled.",
+                )
+                .await
+                .unwrap();
         });
 
         // Channel time range request parameters.
         let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
-        let opts = ChannelOptions::new("default", 0, 0, 10);
+        let opts = ChannelOptions::new("tao", 0, 0, 10);
 
         // Create a channel time range request.
         let channel_time_range_req =
@@ -878,7 +888,7 @@ mod test {
             let stream = listener.accept().await.unwrap();
 
             // Invoke the cable manager's listener.
-            peer.listen(stream).await.unwrap();
+            cable.listen(stream).await.unwrap();
         });
 
         // Create a mock IO stream by connecting to the listener.
@@ -897,6 +907,38 @@ mod test {
         // Ensure that a hash response was returned by the listening peer.
         let (_bytes_len, msg) = Message::from_bytes(&res_bytes)?;
         assert_eq!(msg.message_type(), HASH_RESPONSE);
+
+        // TODO: Ensure that the req_id of the response matches that of the
+        // original request.
+
+        if let MessageBody::Response { body } = msg.body {
+            if let ResponseBody::Hash { hashes } = body {
+                // Only a single post hash should be returned.
+                debug!("Asserting hashes length");
+                assert_eq!(hashes.len(), 1);
+
+                // Create a post request.
+                debug!("Creating a post request");
+                let post_req = Message::post_request(CIRCUIT_ID, req_id, TTL, hashes);
+                let req_bytes = post_req.to_bytes()?;
+
+                // Write the request bytes to the stream.
+                debug!("Writing the post request bytes to the stream");
+                stream.write_all(&req_bytes).await?;
+
+                // Sleep briefly to allow time for the cable manager to respond.
+                thread::sleep(five_millis);
+
+                // Read the response from the stream.
+                debug!("Reading the response bytes from the stream");
+                let mut res_bytes = [0u8; 1024];
+                let _n = stream.read(&mut res_bytes).await?;
+
+                // Ensure that a post response was returned by the listening peer.
+                let (_bytes_len, msg) = Message::from_bytes(&res_bytes)?;
+                assert_eq!(msg.message_type(), POST_RESPONSE);
+            }
+        }
 
         Ok(())
     }
