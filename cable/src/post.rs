@@ -73,7 +73,7 @@ impl fmt::Display for PostHeader {
     }
 }
 
-// TODO: remember to write validators for post type data.
+// TODO: Remember to write validators for post type data.
 // E.g. "A topic field MUST be a valid UTF-8 string, between 0 and 512 codepoints."
 
 #[derive(Clone, Debug)]
