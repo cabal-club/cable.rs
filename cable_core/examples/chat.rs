@@ -25,6 +25,8 @@ fn now() -> u64 {
 }
 
 fn main() -> Result<(), Error> {
+    env_logger::init();
+
     let (args, argv) = argmap::parse(std::env::args());
 
     task::block_on(async move {
@@ -69,6 +71,7 @@ fn main() -> Result<(), Error> {
         // Deploy a TCP listener and pass the stream to the cable manager.
         if let Some(port) = argv.get("l").and_then(|x| x.first()) {
             println!("Deploying TCP server on 0.0.0.0:{}", port);
+
             let listener = net::TcpListener::bind(format!["0.0.0.0:{}", port]).await?;
             let mut incoming = listener.incoming();
             while let Some(stream) = incoming.next().await {
@@ -81,6 +84,7 @@ fn main() -> Result<(), Error> {
         // Connect to a TCP server and pass the stream to the cable manager.
         } else if let Some(addr) = args.get(1) {
             println!("Connecting to TCP server on {}", addr);
+
             let stream = net::TcpStream::connect(addr).await?;
             cable.listen(stream).await?;
         }
