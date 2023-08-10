@@ -820,15 +820,6 @@ where
     }
 }
 
-/*
-
-// Test brainstorm:
-//
-// Create two instances of `CableManager`.
-// Invoke `listen` for each with an async stream.
-// Make some posts?
-*/
-
 #[cfg(test)]
 mod test {
     use std::{thread, time::Duration};
@@ -840,7 +831,6 @@ mod test {
     };
     use desert::{FromBytes, ToBytes};
     use futures::{AsyncReadExt, AsyncWriteExt};
-    //use futures_ringbuf::Endpoint;
     use hex::FromHex;
     use mock_io::futures::{MockListener, MockStream};
 
