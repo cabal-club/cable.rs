@@ -77,8 +77,8 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
     /// Retrieve all channels from the store.
     async fn get_channels<'a>(&'a mut self) -> Result<Vec<Channel>, Error>;
 
-    /// Insert the given post into the store.
-    async fn insert_post(&mut self, post: &Post) -> Result<(), Error>;
+    /// Insert the given post into the store and return the hash.
+    async fn insert_post(&mut self, post: &Post) -> Result<Hash, Error>;
 
     /// Retrieve all posts matching the parameters defined by the given
     /// `ChannelOptions`.
@@ -192,8 +192,11 @@ impl Store for MemoryStore {
         Ok(channels)
     }
 
-    async fn insert_post(&mut self, post: &Post) -> Result<(), Error> {
+    async fn insert_post(&mut self, post: &Post) -> Result<Hash, Error> {
         let timestamp = &post.get_timestamp();
+
+        // Hash the post.
+        let hash = post.hash()?;
 
         match &post.body {
             // TODO: Include matching arms for other post types.
@@ -240,10 +243,8 @@ impl Store for MemoryStore {
                         if let Some(hashes) = hash_map.get_mut(timestamp) {
                             // Add the hash to the vector of hashes indexed by
                             // the given timestamp.
-                            hashes.push(post.hash()?);
+                            hashes.push(hash);
                         } else {
-                            // Hash the post.
-                            let hash = post.hash()?;
                             // Insert the hash (as a `Vec`) into the `BTreeMap`,
                             // using the timestampas the key.
                             hash_map.insert(*timestamp, vec![hash]);
@@ -260,8 +261,6 @@ impl Store for MemoryStore {
                         // given channel.
 
                         let mut hash_map = BTreeMap::new();
-                        // Hash the post.
-                        let hash = post.hash()?;
                         // Insert the hash (as a `Vec`) into the `BTreeMap`,
                         // using the timestamp as the key.
                         hash_map.insert(*timestamp, vec![hash]);
@@ -293,7 +292,7 @@ impl Store for MemoryStore {
             _ => {}
         }
 
-        Ok(())
+        Ok(hash)
     }
 
     async fn get_posts(&mut self, opts: &ChannelOptions) -> Result<PostStream, Error> {
