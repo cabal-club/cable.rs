@@ -50,15 +50,12 @@ async fn main() -> Result<(), Error> {
     let cable_clone = cable.clone();
 
     // Publish a test post to the "tao" channel.
-    task::block_on(async {
-        cable
-            .post_text(
-                "tao",
-                "Need little, want less. Forget the rules. Be untroubled.",
-            )
-            .await
-            .unwrap();
-    });
+    let post_hash = cable
+        .post_text(
+            "tao",
+            "Need little, want less. Forget the rules. Be untroubled.",
+        )
+        .await?;
 
     // Generate a novel request ID.
     let (_req_id, req_id_bytes) = cable.new_req_id().await?;
@@ -80,11 +77,12 @@ async fn main() -> Result<(), Error> {
             .unwrap();
         let mut incoming = listener.incoming();
         while let Some(stream) = incoming.next().await {
-            let stream = stream.unwrap();
-            let client = cable.clone();
-            task::spawn(async move {
-                client.listen(stream).await.unwrap();
-            });
+            if let Ok(stream) = stream {
+                let cable = cable.clone();
+                task::spawn(async move {
+                    cable.listen(stream).await.unwrap();
+                });
+            }
         }
     });
 
@@ -110,6 +108,9 @@ async fn main() -> Result<(), Error> {
         if let ResponseBody::Hash { hashes } = body {
             // Only a single post hash should be returned.
             assert_eq!(hashes.len(), 1);
+            // Ensure the returned hash matches the hash of the original
+            // text post.
+            assert_eq!(hashes[0], post_hash);
 
             // Generate a novel request ID.
             let (_req_id, req_id_bytes) = cable_clone.new_req_id().await?;
@@ -125,7 +126,6 @@ async fn main() -> Result<(), Error> {
             thread::sleep(five_millis);
 
             // Read the response from the stream.
-            let mut res_bytes = [0u8; 1024];
             let _n = stream.read(&mut res_bytes).await?;
 
             // Ensure that a post response was returned by the listening peer.
