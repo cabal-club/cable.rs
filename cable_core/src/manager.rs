@@ -128,12 +128,12 @@ where
         Ok((public_key, links, timestamp))
     }
 
-    /// Publish a new text post.
+    /// Publish a new text post and return the hash.
     pub async fn post_text<T: Into<String>, U: Into<String>>(
         &mut self,
         channel: T,
         text: U,
-    ) -> Result<(), Error> {
+    ) -> Result<Hash, Error> {
         debug!("Posting text post...");
 
         let channel = channel.into();
@@ -146,8 +146,9 @@ where
         self.post(post).await
     }
 
-    /// Publish a new delete post with the given post hashes.
-    pub async fn post_delete(&mut self, hashes: Vec<Hash>) -> Result<(), Error> {
+    /// Publish a new delete post with the given post hashes, returning the
+    /// hash of the new post.
+    pub async fn post_delete(&mut self, hashes: Vec<Hash>) -> Result<Hash, Error> {
         let public_key = self.get_public_key().await?;
         let links = vec![];
         let timestamp = std::time::SystemTime::now()
@@ -160,8 +161,8 @@ where
         self.post(post).await
     }
 
-    /// Publish a new info post with the given name.
-    pub async fn post_info_name(&mut self, username: &str) -> Result<(), Error> {
+    /// Publish a new info post with the given name and return the hash.
+    pub async fn post_info_name(&mut self, username: &str) -> Result<Hash, Error> {
         let public_key = self.get_public_key().await?;
         let links = vec![];
         let timestamp = std::time::SystemTime::now()
@@ -176,12 +177,12 @@ where
         self.post(post).await
     }
 
-    /// Publish a new topic post for the given channel.
+    /// Publish a new topic post for the given channel and return the hash.
     pub async fn post_topic<T: Into<String>, U: Into<String>>(
         &mut self,
         channel: T,
         topic: U,
-    ) -> Result<(), Error> {
+    ) -> Result<Hash, Error> {
         let channel = channel.into();
         let (public_key, links, timestamp) = self.post_header_values(&channel).await?;
         let topic = topic.into();
@@ -192,8 +193,8 @@ where
         self.post(post).await
     }
 
-    /// Publish a new join post for the given channel.
-    pub async fn post_join<T: Into<String>>(&mut self, channel: T) -> Result<(), Error> {
+    /// Publish a new join post for the given channel and return the hash.
+    pub async fn post_join<T: Into<String>>(&mut self, channel: T) -> Result<Hash, Error> {
         let channel = channel.into();
         let (public_key, links, timestamp) = self.post_header_values(&channel).await?;
 
@@ -203,8 +204,8 @@ where
         self.post(post).await
     }
 
-    /// Publish a new leave post for the given channel.
-    pub async fn post_leave<T: Into<String>>(&mut self, channel: T) -> Result<(), Error> {
+    /// Publish a new leave post for the given channel and return the hash.
+    pub async fn post_leave<T: Into<String>>(&mut self, channel: T) -> Result<Hash, Error> {
         let channel = channel.into();
         let (public_key, links, timestamp) = self.post_header_values(&channel).await?;
 
@@ -214,22 +215,20 @@ where
         self.post(post).await
     }
 
-    /// Publish a post.
-    pub async fn post(&mut self, mut post: Post) -> Result<(), Error> {
+    /// Publish a post and return the hash.
+    pub async fn post(&mut self, mut post: Post) -> Result<Hash, Error> {
         // Sign the post if required.
         if !post.is_signed() {
             post.sign(&self.get_secret_key().await?)?;
         }
 
         // Insert the post into the local store.
-        self.store.insert_post(&post).await?;
+        let hash = self.store.insert_post(&post).await?;
 
         // Send post hashes to all peers for whom we hold inbound requests.
         self.send_post_hashes().await?;
 
-        // TODO: Should we return the hash of the post?
-
-        Ok(())
+        Ok(hash)
     }
 
     /// Send post hashes matching peer request parameters for all live
@@ -304,6 +303,8 @@ where
         // Ignore this message if the request ID matches one we already
         // know about.
         if self.handled_requests.read().await.contains(&req_id) {
+            debug!("Dropping message from handler; request ID has been seen before");
+
             return Ok(());
         }
 
@@ -534,7 +535,7 @@ where
     }
 
     /// Generate a new request ID.
-    async fn new_req_id(&self) -> Result<(u32, ReqId), Error> {
+    pub async fn new_req_id(&self) -> Result<(u32, ReqId), Error> {
         let mut last_req_id = self.last_req_id.write().await;
 
         // Reset request ID to 0 if the maximum u32 has been reached.
@@ -815,130 +816,6 @@ where
 
         // Remove the peer from the list of active peers.
         self.peers.write().await.remove(&peer_id);
-
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use std::{thread, time::Duration};
-
-    use async_std::task;
-    use cable::{
-        constants::{HASH_RESPONSE, NO_CIRCUIT, POST_RESPONSE},
-        message::{MessageBody, ResponseBody},
-        ChannelOptions, Error, Message,
-    };
-    use desert::{FromBytes, ToBytes};
-    use futures::{AsyncReadExt, AsyncWriteExt};
-    use hex::FromHex;
-    use log::debug;
-    use mock_io::futures::{MockListener, MockStream};
-
-    use crate::{CableManager, MemoryStore};
-
-    // The circuit_id field is not currently in use; set to all zeros.
-    const CIRCUIT_ID: [u8; 4] = NO_CIRCUIT;
-    const REQ_ID: &str = "04baaffb";
-    const TTL: u8 = 1;
-
-    // Initialise the logger in test mode.
-    fn init() {
-        let _ = env_logger::builder().is_test(false).try_init();
-    }
-
-    // Run this single test with debug-level logging enabled:
-    // `RUST_LOG=cable_core=debug cargo test request_response`
-
-    #[async_std::test]
-    async fn request_response() -> Result<(), Error> {
-        // Initialise the logger.
-        init();
-
-        // Create a store and a cable manager.
-        let store = MemoryStore::default();
-        let mut cable = CableManager::new(store);
-
-        // Publish a test post to the "tao" channel.
-        task::block_on(async {
-            cable
-                .post_text(
-                    "tao",
-                    "Need little, want less. Forget the rules. Be untroubled.",
-                )
-                .await
-                .unwrap();
-        });
-
-        // Channel time range request parameters.
-        let req_id = <[u8; 4]>::from_hex(REQ_ID)?;
-        let opts = ChannelOptions::new("tao", 0, 0, 10);
-
-        // Create a channel time range request.
-        let channel_time_range_req =
-            Message::channel_time_range_request(CIRCUIT_ID, req_id, TTL, opts);
-        let req_bytes = channel_time_range_req.to_bytes()?;
-
-        // Instantiate an asynchronous mock IO listener.
-        let (listener, handle) = MockListener::new();
-
-        task::spawn(async move {
-            // Create a mock IO stream by accepting an inbound connection.
-            let stream = listener.accept().await.unwrap();
-
-            // Invoke the cable manager's listener.
-            cable.listen(stream).await.unwrap();
-        });
-
-        // Create a mock IO stream by connecting to the listener.
-        let mut stream = MockStream::connect(&handle).await.unwrap();
-        // Write the request bytes to the stream.
-        stream.write_all(&req_bytes).await?;
-
-        // Sleep briefly to allow time for the cable manager to respond.
-        let five_millis = Duration::from_millis(5);
-        thread::sleep(five_millis);
-
-        // Read the response from the stream.
-        let mut res_bytes = [0u8; 1024];
-        let _n = stream.read(&mut res_bytes).await?;
-
-        // Ensure that a hash response was returned by the listening peer.
-        let (_bytes_len, msg) = Message::from_bytes(&res_bytes)?;
-        assert_eq!(msg.message_type(), HASH_RESPONSE);
-
-        // TODO: Ensure that the req_id of the response matches that of the
-        // original request.
-
-        if let MessageBody::Response { body } = msg.body {
-            if let ResponseBody::Hash { hashes } = body {
-                // Only a single post hash should be returned.
-                debug!("Asserting hashes length");
-                assert_eq!(hashes.len(), 1);
-
-                // Create a post request.
-                debug!("Creating a post request");
-                let post_req = Message::post_request(CIRCUIT_ID, req_id, TTL, hashes);
-                let req_bytes = post_req.to_bytes()?;
-
-                // Write the request bytes to the stream.
-                debug!("Writing the post request bytes to the stream");
-                stream.write_all(&req_bytes).await?;
-
-                // Sleep briefly to allow time for the cable manager to respond.
-                thread::sleep(five_millis);
-
-                // Read the response from the stream.
-                debug!("Reading the response bytes from the stream");
-                let mut res_bytes = [0u8; 1024];
-                let _n = stream.read(&mut res_bytes).await?;
-
-                // Ensure that a post response was returned by the listening peer.
-                let (_bytes_len, msg) = Message::from_bytes(&res_bytes)?;
-                assert_eq!(msg.message_type(), POST_RESPONSE);
-            }
-        }
 
         Ok(())
     }
