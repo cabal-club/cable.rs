@@ -1,15 +1,11 @@
-//! This example tests the cable manager by creating a TCP stream, invoking
+//! Test the cable manager by creating a TCP stream, invoking
 //! the cable listener and then writing and reading requests and responses
 //! to and from the stream. In this way, we can trace the request-response
 //! handling.
 //!
-//! Run the example with debug logging enabled in a terminal:
+//! Run the test with debug logging enabled in a terminal:
 //!
-//! `RUST_LOG=debug cargo run --example stream`
-//!
-//! The code here is very similar to the test code found in
-//! `cable_core/src/manager.rs`, with the primary exception being that it uses
-//! a proper TCP stream and not a mock IO stream.
+//! `RUST_LOG=debug cargo test request_response
 
 use std::{thread, time::Duration};
 
@@ -25,14 +21,22 @@ use cable::{
 };
 use desert::{FromBytes, ToBytes};
 use futures::{AsyncReadExt, AsyncWriteExt};
+use log::info;
 
 use cable_core::{CableManager, MemoryStore};
 
 // The circuit_id field is not currently in use; set to all zeros.
 const CIRCUIT_ID: [u8; 4] = NO_CIRCUIT;
 const TTL: u8 = 1;
-const PORT: &str = "8007";
 
+// Initialise the logger in test mode.
+//
+// Set `is_test()` to `false` if you wish to see logging output.
+fn init() {
+    let _ = env_logger::builder().is_test(true).try_init();
+}
+
+// Get the current system time in seconds since the UNIX epoch.
 fn now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -40,9 +44,9 @@ fn now() -> u64 {
         .as_secs()
 }
 
-#[async_std::main]
-async fn main() -> Result<(), Error> {
-    env_logger::init();
+#[async_std::test]
+async fn request_response() -> Result<(), Error> {
+    init();
 
     // Create a store and a cable manager.
     let store = MemoryStore::default();
@@ -61,20 +65,25 @@ async fn main() -> Result<(), Error> {
     let (_req_id, req_id_bytes) = cable.new_req_id().await?;
 
     // Channel time range request parameters.
-    let opts = ChannelOptions::new("tao", 0, 0, 10);
+    let opts = ChannelOptions::new("tao", now(), 0, 10);
 
     // Create a channel time range request.
     let channel_time_range_req =
         Message::channel_time_range_request(CIRCUIT_ID, req_id_bytes, TTL, opts);
     let req_bytes = channel_time_range_req.to_bytes()?;
 
-    task::spawn(async move {
-        // Deploy a TCP listener and pass the stream to the cable manager.
-        println!("Deploying TCP server on localhost:{}", PORT);
+    // Deploy a TCP listener.
+    //
+    // Assigning port to 0 means that the OS selects an available port for us.
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
 
-        let listener = TcpListener::bind(format!("localhost:{}", PORT))
-            .await
-            .unwrap();
+    // Retrieve the address of the TCP listener to be able to connect later on.
+    let addr = listener.local_addr()?;
+    info!("Deployed TCP server on {}", addr);
+
+    task::spawn(async move {
+        // Listen for incoming TCP connections and pass any inbound streams to
+        // the cable manager.
         let mut incoming = listener.incoming();
         while let Some(stream) = incoming.next().await {
             if let Ok(stream) = stream {
@@ -86,8 +95,8 @@ async fn main() -> Result<(), Error> {
         }
     });
 
-    println!("Connecting to TCP server on localhost:{}", PORT);
-    let mut stream = TcpStream::connect(format!("localhost:{}", PORT)).await?;
+    let mut stream = TcpStream::connect(addr).await?;
+    info!("Connected to TCP server on {}", addr);
 
     // Write the request bytes to the stream.
     stream.write_all(&req_bytes).await?;
