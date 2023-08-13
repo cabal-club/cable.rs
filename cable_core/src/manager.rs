@@ -225,39 +225,54 @@ where
         // Insert the post into the local store.
         let hash = self.store.insert_post(&post).await?;
 
+        let channel = post.get_channel();
+
+        // Update the store of known channels.
+        if let Some(channel) = channel {
+            self.store.insert_channel(channel).await?;
+        }
+
         // Send post hashes to all peers for whom we hold inbound requests.
-        self.send_post_hashes().await?;
+        self.send_post_hashes(channel).await?;
 
         Ok(hash)
     }
 
     /// Send post hashes matching peer request parameters for all live
     /// requests.
-    async fn send_post_hashes(&mut self) -> Result<(), Error> {
+    async fn send_post_hashes(&mut self, channel: Option<&Channel>) -> Result<(), Error> {
         // Iterate over all live peer requests.
         for (peer_id, reqs) in self.live_requests.read().await.iter() {
             // Iterate over peer requests.
             for (req_id, opts) in reqs {
-                let limit = opts.limit.min(4096);
-                let mut hashes = vec![];
+                if let Some(channel) = channel {
+                    // Only send hashes if the channel of the post which invoked
+                    // the call to `send_post_hashes()` matches the channel of
+                    // the peer request.
+                    if &opts.channel == channel {
+                        let limit = opts.limit.min(4096);
+                        let mut hashes = vec![];
 
-                {
-                    // Get all post hashes matching the request parameters.
-                    let mut stream = self.store.get_post_hashes(opts).await?;
-                    while let Some(result) = stream.next().await {
-                        hashes.push(result?);
-                        // Break once the request limit has been reached.
-                        if hashes.len() as u64 >= limit {
-                            break;
+                        // Get all post hashes matching the request parameters.
+                        let mut stream = self.store.get_post_hashes(opts).await?;
+                        while let Some(result) = stream.next().await {
+                            hashes.push(result?);
+                            // Break once the request limit has been reached.
+                            if hashes.len() as u64 >= limit {
+                                break;
+                            }
                         }
+                        // Drop the mutable borrow of `self` to allow the later
+                        // call to `self.send()` (immutable borrow).
+                        drop(stream);
+
+                        // Construct a new hash response message.
+                        let response = Message::hash_response(NO_CIRCUIT, *req_id, hashes);
+
+                        // Send the response to the peer.
+                        self.send(*peer_id, &response).await?;
                     }
                 }
-
-                // Construct a new hash response message.
-                let response = Message::hash_response(NO_CIRCUIT, *req_id, hashes);
-
-                // Send the response to the peer.
-                self.send(*peer_id, &response).await?;
             }
         }
 
@@ -426,13 +441,22 @@ where
                         self.decrement_ttl_and_write_to_outbound(req_id, msg).await;
                     }
 
-                    let n_limit = (*limit).min(4096);
+                    let skip = *skip as usize;
+                    let limit = *limit as usize;
 
                     let mut all_channels = self.store.get_channels().await?;
+                    let channels_len = all_channels.len();
+
+                    // Define the channel query limit based on the request
+                    // limit and the number of known channels.
+                    let limit = if limit == 0 || limit > channels_len {
+                        channels_len
+                    } else {
+                        limit
+                    };
+
                     // Drain the channels matching the given range.
-                    let channels = all_channels
-                        .drain(*skip as usize..n_limit as usize)
-                        .collect();
+                    let channels = all_channels.drain(skip..limit).collect();
 
                     let response = Message::channel_list_response(circuit_id, req_id, channels);
 
@@ -519,7 +543,9 @@ where
 
                     // TODO: Do we need to take action to conclude the request
                     // which resulted in this response?
-                    self.store.insert_channels(channels).await?;
+                    for channel in channels {
+                        self.store.insert_channel(channel).await?;
+                    }
                 }
             },
             // Ignore unrecognized message type.

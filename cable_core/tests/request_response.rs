@@ -5,7 +5,22 @@
 //!
 //! Run the test with debug logging enabled in a terminal:
 //!
-//! `RUST_LOG=debug cargo test request_response
+//! `RUST_LOG=debug cargo test request_response`
+//!
+//! An outline of the actions taken in this test:
+//!
+//! 1) Publish a post.
+//!
+//! 2) Send a channel time range request matching the channel to which the post
+//! was published. Ensure that a hash response is returned.
+//!
+//! 3) Use the hash from the hash response to send a post request, ensuring the
+//! correct post is returned.
+//!
+//! 4) Publish two more posts, each to a different channel.
+//!
+//! 5) Send a channel list request. Ensure that three channels are returned and
+//! that they match the channels to which the three posts were published.
 
 use std::{thread, time::Duration};
 
@@ -15,7 +30,7 @@ use async_std::{
     task,
 };
 use cable::{
-    constants::{HASH_RESPONSE, NO_CIRCUIT, POST_RESPONSE},
+    constants::{CHANNEL_LIST_RESPONSE, HASH_RESPONSE, NO_CIRCUIT, POST_RESPONSE},
     message::{MessageBody, ResponseBody},
     ChannelOptions, Error, Message,
 };
@@ -31,9 +46,10 @@ const TTL: u8 = 1;
 
 // Initialise the logger in test mode.
 //
-// Set `is_test()` to `false` if you wish to see logging output.
+// Set `is_test()` to `false` if you wish to see logging output during the
+// test run.
 fn init() {
-    let _ = env_logger::builder().is_test(true).try_init();
+    let _ = env_logger::builder().is_test(false).try_init();
 }
 
 // Get the current system time in seconds since the UNIX epoch.
@@ -87,7 +103,7 @@ async fn request_response() -> Result<(), Error> {
         let mut incoming = listener.incoming();
         while let Some(stream) = incoming.next().await {
             if let Ok(stream) = stream {
-                let cable = cable.clone();
+                let cable = cable_clone.clone();
                 task::spawn(async move {
                     cable.listen(stream).await.unwrap();
                 });
@@ -122,7 +138,7 @@ async fn request_response() -> Result<(), Error> {
             assert_eq!(hashes[0], post_hash);
 
             // Generate a novel request ID.
-            let (_req_id, req_id_bytes) = cable_clone.new_req_id().await?;
+            let (_req_id, req_id_bytes) = cable.new_req_id().await?;
 
             // Create a post request.
             let post_req = Message::post_request(CIRCUIT_ID, req_id_bytes, TTL, hashes);
@@ -142,6 +158,37 @@ async fn request_response() -> Result<(), Error> {
             assert_eq!(msg.message_type(), POST_RESPONSE);
         }
     }
+
+    // Publish a test post to the "bamboo" channel.
+    let _post_hash = cable
+        .post_text(
+            "bamboo",
+            "Without bamboo, we lose serenity and culture itself.",
+        )
+        .await?;
+
+    // Publish a test post to the "bikes" channel.
+    let _post_hash = cable.post_text("bikes", "I got no brakes!").await?;
+
+    // Generate a novel request ID.
+    let (_req_id, req_id_bytes) = cable.new_req_id().await?;
+
+    // Create a channel list request.
+    let channel_list_req = Message::channel_list_request(CIRCUIT_ID, req_id_bytes, TTL, 0, 0);
+    let req_bytes = channel_list_req.to_bytes()?;
+
+    // Write the request bytes to the stream.
+    stream.write_all(&req_bytes).await?;
+
+    // Sleep briefly to allow time for the cable manager to respond.
+    thread::sleep(five_millis);
+
+    // Read the response from the stream.
+    let _n = stream.read(&mut res_bytes).await?;
+
+    // Ensure that a channel list response was returned by the listening peer.
+    let (_bytes_len, msg) = Message::from_bytes(&res_bytes)?;
+    assert_eq!(msg.message_type(), CHANNEL_LIST_RESPONSE);
 
     Ok(())
 }

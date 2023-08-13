@@ -71,8 +71,8 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
     /// hash or no hashes will be returned.
     async fn get_latest_hashes(&mut self, channel: &Channel) -> Option<Vec<Hash>>;
 
-    /// Insert the given channels into the store.
-    async fn insert_channels(&mut self, channels: &[Channel]) -> Result<(), Error>;
+    /// Insert the given channel into the store.
+    async fn insert_channel(&mut self, channel: &Channel) -> Result<(), Error>;
 
     /// Retrieve all channels from the store.
     async fn get_channels<'a>(&'a mut self) -> Result<Vec<Channel>, Error>;
@@ -176,12 +176,10 @@ impl Store for MemoryStore {
         }
     }
 
-    async fn insert_channels(&mut self, channels: &[Channel]) -> Result<(), Error> {
+    async fn insert_channel(&mut self, channel: &Channel) -> Result<(), Error> {
         // Open the channel store for writing.
         let mut channel_store = self.channels.write().await;
-        for channel in channels {
-            channel_store.insert(channel.to_owned());
-        }
+        channel_store.insert(channel.to_owned());
 
         Ok(())
     }
