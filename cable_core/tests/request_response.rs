@@ -21,6 +21,13 @@
 //!
 //! 5) Send a channel list request. Ensure that three channels are returned and
 //! that they match the channels to which the three posts were published.
+//!
+//! 6) Publish a second post to the first channel.
+//!
+//! 7) Ensure a hash response is returned with hashes for both posts.
+//!
+//! 8) Send a post request for the first channel, ensuring both post payloads
+//! are returned.
 
 use std::{thread, time::Duration};
 
@@ -189,6 +196,58 @@ async fn request_response() -> Result<(), Error> {
     // Ensure that a channel list response was returned by the listening peer.
     let (_bytes_len, msg) = Message::from_bytes(&res_bytes)?;
     assert_eq!(msg.message_type(), CHANNEL_LIST_RESPONSE);
+
+    // Publish a second post to the "tao" channel.
+    let post_hash = cable
+        .post_text("tao", "Lie low to be on top, be on top by lying low.")
+        .await?;
+
+    // Sleep briefly to allow time for the cable manager to respond.
+    thread::sleep(five_millis);
+
+    // Read the response from the stream.
+    let _n = stream.read(&mut res_bytes).await?;
+
+    // Ensure that a hash response was returned by the listening peer.
+    let (_bytes_len, msg) = Message::from_bytes(&res_bytes)?;
+    assert_eq!(msg.message_type(), HASH_RESPONSE);
+
+    if let MessageBody::Response { body } = msg.body {
+        if let ResponseBody::Hash { hashes } = body {
+            // Two post hashes should be returned (for channel "tao").
+            assert_eq!(hashes.len(), 2);
+            // Ensure the second returned hash matches the hash of the second
+            // text post.
+            assert_eq!(hashes[1], post_hash);
+
+            // Generate a novel request ID.
+            let (_req_id, req_id_bytes) = cable.new_req_id().await?;
+
+            // Create a post request.
+            let post_req = Message::post_request(CIRCUIT_ID, req_id_bytes, TTL, hashes);
+            let req_bytes = post_req.to_bytes()?;
+
+            // Write the request bytes to the stream.
+            stream.write_all(&req_bytes).await?;
+
+            // Sleep briefly to allow time for the cable manager to respond.
+            thread::sleep(five_millis);
+
+            // Read the response from the stream.
+            let _n = stream.read(&mut res_bytes).await?;
+
+            // Ensure that a post response was returned by the listening peer.
+            let (_bytes_len, msg) = Message::from_bytes(&res_bytes)?;
+            assert_eq!(msg.message_type(), POST_RESPONSE);
+
+            if let MessageBody::Response { body } = msg.body {
+                if let ResponseBody::Post { posts } = body {
+                    // Two posts should be returned (for channel "tao").
+                    assert_eq!(posts.len(), 2);
+                }
+            }
+        }
+    }
 
     Ok(())
 }
