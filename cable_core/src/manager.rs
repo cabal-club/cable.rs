@@ -370,18 +370,19 @@ where
                     let n_limit = (*limit).min(4096);
 
                     let mut hashes = vec![];
-                    {
-                        // Create a stream of post hashes matching the given criteria.
-                        let mut stream = self.store.get_post_hashes(&opts).await?;
-                        // Iterate over the hashes in the stream.
-                        while let Some(result) = stream.next().await {
-                            hashes.push(result?);
-                            // Break out of the loop once the requested limit is met.
-                            if hashes.len() as u64 >= n_limit {
-                                break;
-                            }
+                    // Create a stream of post hashes matching the given criteria.
+                    let mut stream = self.store.get_post_hashes(&opts).await?;
+                    // Iterate over the hashes in the stream.
+                    while let Some(result) = stream.next().await {
+                        hashes.push(result?);
+                        // Break out of the loop once the requested limit is met.
+                        if hashes.len() as u64 >= n_limit {
+                            break;
                         }
                     }
+                    // Drop the mutable borrow of `self` to allow the later
+                    // call to `self.send()` (immutable borrow).
+                    drop(stream);
 
                     let response = Message::hash_response(circuit_id, req_id, hashes);
 
