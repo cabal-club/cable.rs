@@ -93,13 +93,13 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
     /// given `ChannelOptions`.
     async fn get_post_hashes<'a>(&'a mut self, opts: &ChannelOptions) -> Result<HashStream, Error>;
 
+    /// Retrieve the post payloads for all posts represented by the given hashes.
+    async fn get_post_payloads(&mut self, hashes: &[Hash]) -> Result<Vec<Payload>, Error>;
+
     /// Retrieve the hashes of all posts representing the subset of the given
     /// hashes for which post data is not available locally (ie. the hashes of
     /// all posts which are not already in the store).
     async fn want(&mut self, hashes: &[Hash]) -> Result<Vec<Hash>, Error>;
-
-    /// Retrieve the post payloads for all posts represented by the given hashes.
-    async fn get_post_payloads(&mut self, hashes: &[Hash]) -> Result<Vec<Payload>, Error>;
 }
 
 #[derive(Clone)]
@@ -246,14 +246,14 @@ impl Store for MemoryStore {
                             // Insert the hash (as a `Vec`) into the `BTreeMap`,
                             // using the timestampas the key.
                             hash_map.insert(*timestamp, vec![hash]);
-
-                            // Insert the binary payload of the post into the
-                            // `HashMap` of post data, indexed by the hash.
-                            self.post_payloads
-                                .write()
-                                .await
-                                .insert(hash, post.to_bytes()?);
                         }
+
+                        // Insert the binary payload of the post into the
+                        // `HashMap` of post data, indexed by the hash.
+                        self.post_payloads
+                            .write()
+                            .await
+                            .insert(hash, post.to_bytes()?);
                     } else {
                         // No hashes have previously been stored for the
                         // given channel.
@@ -386,22 +386,22 @@ impl Store for MemoryStore {
         Ok(Box::new(stream::from_iter(hashes.into_iter())))
     }
 
-    async fn want(&mut self, hashes: &[Hash]) -> Result<Vec<Hash>, Error> {
-        let post_payloads = self.post_payloads.read().await;
-
-        Ok(hashes
-            .iter()
-            .filter(|hash| !post_payloads.contains_key(&(*hash).clone()))
-            .cloned()
-            .collect())
-    }
-
     async fn get_post_payloads(&mut self, hashes: &[Hash]) -> Result<Vec<Payload>, Error> {
         let post_payloads = self.post_payloads.read().await;
 
         Ok(hashes
             .iter()
             .filter_map(|hash| post_payloads.get(hash))
+            .cloned()
+            .collect())
+    }
+
+    async fn want(&mut self, hashes: &[Hash]) -> Result<Vec<Hash>, Error> {
+        let post_payloads = self.post_payloads.read().await;
+
+        Ok(hashes
+            .iter()
+            .filter(|hash| !post_payloads.contains_key(&(*hash).clone()))
             .cloned()
             .collect())
     }
