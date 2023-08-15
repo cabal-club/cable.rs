@@ -28,6 +28,13 @@
 //!
 //! 8) Send a post request for the first channel, ensuring both post payloads
 //! are returned.
+//!
+//! 9) Send a cancel request with the request ID of the initial channel time
+//! range request.
+//!
+//! 10) Publish a third post to the first channel.
+//!
+//! 11) Ensure that no hash response is returned.
 
 use std::{thread, time::Duration};
 
@@ -42,7 +49,7 @@ use cable::{
     ChannelOptions, Error, Message,
 };
 use desert::{FromBytes, ToBytes};
-use futures::{AsyncReadExt, AsyncWriteExt};
+use futures::{AsyncReadExt, AsyncWriteExt, FutureExt};
 use log::info;
 
 use cable_core::{CableManager, MemoryStore};
@@ -85,14 +92,14 @@ async fn request_response() -> Result<(), Error> {
         .await?;
 
     // Generate a novel request ID.
-    let (_req_id, req_id_bytes) = cable.new_req_id().await?;
+    let (_req_id, channel_time_range_req_id_bytes) = cable.new_req_id().await?;
 
     // Channel time range request parameters.
     let opts = ChannelOptions::new("tao", now(), 0, 10);
 
     // Create a channel time range request.
     let channel_time_range_req =
-        Message::channel_time_range_request(CIRCUIT_ID, req_id_bytes, TTL, opts);
+        Message::channel_time_range_request(CIRCUIT_ID, channel_time_range_req_id_bytes, TTL, opts);
     let req_bytes = channel_time_range_req.to_bytes()?;
 
     // Deploy a TCP listener.
@@ -248,6 +255,39 @@ async fn request_response() -> Result<(), Error> {
             }
         }
     }
+
+    // Generate a novel request ID.
+    let (_req_id, req_id_bytes) = cable.new_req_id().await?;
+
+    // Create a cancel request referring to the channel time range request
+    // that was sent at the beginning of this test sequence.
+    let cancel_req = Message::cancel_request(
+        CIRCUIT_ID,
+        req_id_bytes,
+        TTL,
+        channel_time_range_req_id_bytes,
+    );
+    let req_bytes = cancel_req.to_bytes()?;
+
+    // Write the request bytes to the stream.
+    stream.write_all(&req_bytes).await?;
+
+    // Sleep briefly to allow time for the cable manager to respond.
+    thread::sleep(five_millis);
+
+    // Publish a third post to the "tao" channel.
+    let _post_hash = cable
+        .post_text("tao", "Those who embrace the Tao are soft and strong.")
+        .await?;
+
+    // Sleep briefly to allow time for the cable manager to respond.
+    thread::sleep(five_millis);
+
+    // Ensure that no bytes were returned by the listening peer.
+    //
+    // This is a means of verifying that the cancel request successfully
+    // ended our long-lived channel time range request.
+    assert!(stream.read(&mut res_bytes).now_or_never().is_none());
 
     Ok(())
 }

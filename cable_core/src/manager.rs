@@ -350,6 +350,15 @@ where
                     // write the message without first checking the value.
                     self.decrement_ttl_and_write_to_outbound(req_id, msg).await;
 
+                    // Remove the request from the map of live requests.
+                    let mut live_requests = self.live_requests.write().await;
+                    if let Some(peer_requests) = live_requests.get_mut(&peer_id) {
+                        // Iterate over the peer requests and retain only the
+                        // requests for which the ID does not match the given
+                        // cancel ID.
+                        peer_requests.retain(|(id, _opts)| id != cancel_id);
+                    }
+
                     // Remove the request from the list of outbound requests.
                     // The associated message will no longer be sent to peers.
                     self.outbound_requests.write().await.remove(cancel_id);
