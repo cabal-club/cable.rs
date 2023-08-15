@@ -71,14 +71,14 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
     /// hash or no hashes will be returned.
     async fn get_latest_hashes(&mut self, channel: &Channel) -> Option<Vec<Hash>>;
 
-    /// Insert the given channels into the store.
-    async fn insert_channels(&mut self, channels: &[Channel]) -> Result<(), Error>;
+    /// Insert the given channel into the store.
+    async fn insert_channel(&mut self, channel: &Channel) -> Result<(), Error>;
 
     /// Retrieve all channels from the store.
     async fn get_channels<'a>(&'a mut self) -> Result<Vec<Channel>, Error>;
 
-    /// Insert the given post into the store.
-    async fn insert_post(&mut self, post: &Post) -> Result<(), Error>;
+    /// Insert the given post into the store and return the hash.
+    async fn insert_post(&mut self, post: &Post) -> Result<Hash, Error>;
 
     /// Retrieve all posts matching the parameters defined by the given
     /// `ChannelOptions`.
@@ -93,13 +93,13 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
     /// given `ChannelOptions`.
     async fn get_post_hashes<'a>(&'a mut self, opts: &ChannelOptions) -> Result<HashStream, Error>;
 
+    /// Retrieve the post payloads for all posts represented by the given hashes.
+    async fn get_post_payloads(&mut self, hashes: &[Hash]) -> Result<Vec<Payload>, Error>;
+
     /// Retrieve the hashes of all posts representing the subset of the given
     /// hashes for which post data is not available locally (ie. the hashes of
     /// all posts which are not already in the store).
     async fn want(&mut self, hashes: &[Hash]) -> Result<Vec<Hash>, Error>;
-
-    /// Retrieve the post payloads for all posts represented by the given hashes.
-    async fn get_post_payloads(&mut self, hashes: &[Hash]) -> Result<Vec<Payload>, Error>;
 }
 
 #[derive(Clone)]
@@ -176,12 +176,10 @@ impl Store for MemoryStore {
         }
     }
 
-    async fn insert_channels(&mut self, channels: &[Channel]) -> Result<(), Error> {
+    async fn insert_channel(&mut self, channel: &Channel) -> Result<(), Error> {
         // Open the channel store for writing.
         let mut channel_store = self.channels.write().await;
-        for channel in channels {
-            channel_store.insert(channel.to_owned());
-        }
+        channel_store.insert(channel.to_owned());
 
         Ok(())
     }
@@ -192,8 +190,11 @@ impl Store for MemoryStore {
         Ok(channels)
     }
 
-    async fn insert_post(&mut self, post: &Post) -> Result<(), Error> {
+    async fn insert_post(&mut self, post: &Post) -> Result<Hash, Error> {
         let timestamp = &post.get_timestamp();
+
+        // Hash the post.
+        let hash = post.hash()?;
 
         match &post.body {
             // TODO: Include matching arms for other post types.
@@ -240,28 +241,24 @@ impl Store for MemoryStore {
                         if let Some(hashes) = hash_map.get_mut(timestamp) {
                             // Add the hash to the vector of hashes indexed by
                             // the given timestamp.
-                            hashes.push(post.hash()?);
+                            hashes.push(hash);
                         } else {
-                            // Hash the post.
-                            let hash = post.hash()?;
                             // Insert the hash (as a `Vec`) into the `BTreeMap`,
                             // using the timestampas the key.
                             hash_map.insert(*timestamp, vec![hash]);
-
-                            // Insert the binary payload of the post into the
-                            // `HashMap` of post data, indexed by the hash.
-                            self.post_payloads
-                                .write()
-                                .await
-                                .insert(hash, post.to_bytes()?);
                         }
+
+                        // Insert the binary payload of the post into the
+                        // `HashMap` of post data, indexed by the hash.
+                        self.post_payloads
+                            .write()
+                            .await
+                            .insert(hash, post.to_bytes()?);
                     } else {
                         // No hashes have previously been stored for the
                         // given channel.
 
                         let mut hash_map = BTreeMap::new();
-                        // Hash the post.
-                        let hash = post.hash()?;
                         // Insert the hash (as a `Vec`) into the `BTreeMap`,
                         // using the timestamp as the key.
                         hash_map.insert(*timestamp, vec![hash]);
@@ -293,7 +290,7 @@ impl Store for MemoryStore {
             _ => {}
         }
 
-        Ok(())
+        Ok(hash)
     }
 
     async fn get_posts(&mut self, opts: &ChannelOptions) -> Result<PostStream, Error> {
@@ -389,22 +386,22 @@ impl Store for MemoryStore {
         Ok(Box::new(stream::from_iter(hashes.into_iter())))
     }
 
-    async fn want(&mut self, hashes: &[Hash]) -> Result<Vec<Hash>, Error> {
-        let post_payloads = self.post_payloads.read().await;
-
-        Ok(hashes
-            .iter()
-            .filter(|hash| !post_payloads.contains_key(&(*hash).clone()))
-            .cloned()
-            .collect())
-    }
-
     async fn get_post_payloads(&mut self, hashes: &[Hash]) -> Result<Vec<Payload>, Error> {
         let post_payloads = self.post_payloads.read().await;
 
         Ok(hashes
             .iter()
             .filter_map(|hash| post_payloads.get(hash))
+            .cloned()
+            .collect())
+    }
+
+    async fn want(&mut self, hashes: &[Hash]) -> Result<Vec<Hash>, Error> {
+        let post_payloads = self.post_payloads.read().await;
+
+        Ok(hashes
+            .iter()
+            .filter(|hash| !post_payloads.contains_key(&(*hash).clone()))
             .cloned()
             .collect())
     }

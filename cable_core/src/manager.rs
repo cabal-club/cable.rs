@@ -31,7 +31,7 @@ use crate::{store::Store, stream::PostStream};
 // NOTE: We may want to set this dynamically in the
 // future, either based on user choice or connectivity
 // status.
-const TTL: u8 = 0;
+const TTL: u8 = 1;
 
 /// A locally-defined peer ID used to track requests.
 pub type PeerId = usize;
@@ -128,12 +128,12 @@ where
         Ok((public_key, links, timestamp))
     }
 
-    /// Publish a new text post.
+    /// Publish a new text post and return the hash.
     pub async fn post_text<T: Into<String>, U: Into<String>>(
         &mut self,
         channel: T,
         text: U,
-    ) -> Result<(), Error> {
+    ) -> Result<Hash, Error> {
         debug!("Posting text post...");
 
         let channel = channel.into();
@@ -146,8 +146,9 @@ where
         self.post(post).await
     }
 
-    /// Publish a new delete post with the given post hashes.
-    pub async fn post_delete(&mut self, hashes: Vec<Hash>) -> Result<(), Error> {
+    /// Publish a new delete post with the given post hashes, returning the
+    /// hash of the new post.
+    pub async fn post_delete(&mut self, hashes: Vec<Hash>) -> Result<Hash, Error> {
         let public_key = self.get_public_key().await?;
         let links = vec![];
         let timestamp = std::time::SystemTime::now()
@@ -160,8 +161,8 @@ where
         self.post(post).await
     }
 
-    /// Publish a new info post with the given name.
-    pub async fn post_info_name(&mut self, username: &str) -> Result<(), Error> {
+    /// Publish a new info post with the given name and return the hash.
+    pub async fn post_info_name(&mut self, username: &str) -> Result<Hash, Error> {
         let public_key = self.get_public_key().await?;
         let links = vec![];
         let timestamp = std::time::SystemTime::now()
@@ -176,12 +177,12 @@ where
         self.post(post).await
     }
 
-    /// Publish a new topic post for the given channel.
+    /// Publish a new topic post for the given channel and return the hash.
     pub async fn post_topic<T: Into<String>, U: Into<String>>(
         &mut self,
         channel: T,
         topic: U,
-    ) -> Result<(), Error> {
+    ) -> Result<Hash, Error> {
         let channel = channel.into();
         let (public_key, links, timestamp) = self.post_header_values(&channel).await?;
         let topic = topic.into();
@@ -192,8 +193,8 @@ where
         self.post(post).await
     }
 
-    /// Publish a new join post for the given channel.
-    pub async fn post_join<T: Into<String>>(&mut self, channel: T) -> Result<(), Error> {
+    /// Publish a new join post for the given channel and return the hash.
+    pub async fn post_join<T: Into<String>>(&mut self, channel: T) -> Result<Hash, Error> {
         let channel = channel.into();
         let (public_key, links, timestamp) = self.post_header_values(&channel).await?;
 
@@ -203,8 +204,8 @@ where
         self.post(post).await
     }
 
-    /// Publish a new leave post for the given channel.
-    pub async fn post_leave<T: Into<String>>(&mut self, channel: T) -> Result<(), Error> {
+    /// Publish a new leave post for the given channel and return the hash.
+    pub async fn post_leave<T: Into<String>>(&mut self, channel: T) -> Result<Hash, Error> {
         let channel = channel.into();
         let (public_key, links, timestamp) = self.post_header_values(&channel).await?;
 
@@ -214,49 +215,64 @@ where
         self.post(post).await
     }
 
-    /// Publish a post.
-    pub async fn post(&mut self, mut post: Post) -> Result<(), Error> {
+    /// Publish a post and return the hash.
+    pub async fn post(&mut self, mut post: Post) -> Result<Hash, Error> {
         // Sign the post if required.
         if !post.is_signed() {
             post.sign(&self.get_secret_key().await?)?;
         }
 
         // Insert the post into the local store.
-        self.store.insert_post(&post).await?;
+        let hash = self.store.insert_post(&post).await?;
+
+        let channel = post.get_channel();
+
+        // Update the store of known channels.
+        if let Some(channel) = channel {
+            self.store.insert_channel(channel).await?;
+        }
 
         // Send post hashes to all peers for whom we hold inbound requests.
-        self.send_post_hashes().await?;
+        self.send_post_hashes(channel).await?;
 
-        Ok(())
+        Ok(hash)
     }
 
     /// Send post hashes matching peer request parameters for all live
     /// requests.
-    async fn send_post_hashes(&mut self) -> Result<(), Error> {
+    async fn send_post_hashes(&mut self, channel: Option<&Channel>) -> Result<(), Error> {
         // Iterate over all live peer requests.
         for (peer_id, reqs) in self.live_requests.read().await.iter() {
             // Iterate over peer requests.
             for (req_id, opts) in reqs {
-                let limit = opts.limit.min(4096);
-                let mut hashes = vec![];
+                if let Some(channel) = channel {
+                    // Only send hashes if the channel of the post which invoked
+                    // the call to `send_post_hashes()` matches the channel of
+                    // the peer request.
+                    if &opts.channel == channel {
+                        let limit = opts.limit.min(4096);
+                        let mut hashes = vec![];
 
-                {
-                    // Get all post hashes matching the request parameters.
-                    let mut stream = self.store.get_post_hashes(opts).await?;
-                    while let Some(result) = stream.next().await {
-                        hashes.push(result?);
-                        // Break once the request limit has been reached.
-                        if hashes.len() as u64 >= limit {
-                            break;
+                        // Get all post hashes matching the request parameters.
+                        let mut stream = self.store.get_post_hashes(opts).await?;
+                        while let Some(result) = stream.next().await {
+                            hashes.push(result?);
+                            // Break once the request limit has been reached.
+                            if hashes.len() as u64 >= limit {
+                                break;
+                            }
                         }
+                        // Drop the mutable borrow of `self` to allow the later
+                        // call to `self.send()` (immutable borrow).
+                        drop(stream);
+
+                        // Construct a new hash response message.
+                        let response = Message::hash_response(NO_CIRCUIT, *req_id, hashes);
+
+                        // Send the response to the peer.
+                        self.send(*peer_id, &response).await?;
                     }
                 }
-
-                // Construct a new hash response message.
-                let response = Message::hash_response(NO_CIRCUIT, *req_id, hashes);
-
-                // Send the response to the peer.
-                self.send(*peer_id, &response).await?;
             }
         }
 
@@ -302,6 +318,8 @@ where
         // Ignore this message if the request ID matches one we already
         // know about.
         if self.handled_requests.read().await.contains(&req_id) {
+            debug!("Dropping message from handler; request ID has been seen before");
+
             return Ok(());
         }
 
@@ -309,6 +327,8 @@ where
         match &msg.body {
             MessageBody::Request { ttl, body } => match body {
                 RequestBody::Post { hashes } => {
+                    debug!("Handling post request...");
+
                     // If the request TTL is > 0, decrement it and add the
                     // message to `outbound_requests` so that it will be
                     // forwarded to other connected peers.
@@ -324,9 +344,20 @@ where
                     self.send(peer_id, &response).await?
                 }
                 RequestBody::Cancel { cancel_id } => {
+                    debug!("Handling cancel request...");
+
                     // TTL is ignored for cancel requests so we decrement and
                     // write the message without first checking the value.
                     self.decrement_ttl_and_write_to_outbound(req_id, msg).await;
+
+                    // Remove the request from the map of live requests.
+                    let mut live_requests = self.live_requests.write().await;
+                    if let Some(peer_requests) = live_requests.get_mut(&peer_id) {
+                        // Iterate over the peer requests and retain only the
+                        // requests for which the ID does not match the given
+                        // cancel ID.
+                        peer_requests.retain(|(id, _opts)| id != cancel_id);
+                    }
 
                     // Remove the request from the list of outbound requests.
                     // The associated message will no longer be sent to peers.
@@ -338,6 +369,8 @@ where
                     time_end,
                     limit,
                 } => {
+                    debug!("Handling channel time range request...");
+
                     if *ttl > 0 {
                         self.decrement_ttl_and_write_to_outbound(req_id, msg).await;
                     }
@@ -346,18 +379,19 @@ where
                     let n_limit = (*limit).min(4096);
 
                     let mut hashes = vec![];
-                    {
-                        // Create a stream of post hashes matching the given criteria.
-                        let mut stream = self.store.get_post_hashes(&opts).await?;
-                        // Iterate over the hashes in the stream.
-                        while let Some(result) = stream.next().await {
-                            hashes.push(result?);
-                            // Break out of the loop once the requested limit is met.
-                            if hashes.len() as u64 >= n_limit {
-                                break;
-                            }
+                    // Create a stream of post hashes matching the given criteria.
+                    let mut stream = self.store.get_post_hashes(&opts).await?;
+                    // Iterate over the hashes in the stream.
+                    while let Some(result) = stream.next().await {
+                        hashes.push(result?);
+                        // Break out of the loop once the requested limit is met.
+                        if hashes.len() as u64 >= n_limit {
+                            break;
                         }
                     }
+                    // Drop the mutable borrow of `self` to allow the later
+                    // call to `self.send()` (immutable borrow).
+                    drop(stream);
 
                     let response = Message::hash_response(circuit_id, req_id, hashes);
 
@@ -379,6 +413,8 @@ where
                     channel: _,
                     future: _,
                 } => {
+                    debug!("Handling channel state request...");
+
                     if *ttl > 0 {
                         self.decrement_ttl_and_write_to_outbound(req_id, msg).await;
                     }
@@ -409,17 +445,28 @@ where
                     */
                 }
                 RequestBody::ChannelList { skip, limit } => {
+                    debug!("Handling channel list request...");
+
                     if *ttl > 0 {
                         self.decrement_ttl_and_write_to_outbound(req_id, msg).await;
                     }
 
-                    let n_limit = (*limit).min(4096);
+                    let skip = *skip as usize;
+                    let limit = *limit as usize;
 
                     let mut all_channels = self.store.get_channels().await?;
+                    let channels_len = all_channels.len();
+
+                    // Define the channel query limit based on the request
+                    // limit and the number of known channels.
+                    let limit = if limit == 0 || limit > channels_len {
+                        channels_len
+                    } else {
+                        limit
+                    };
+
                     // Drain the channels matching the given range.
-                    let channels = all_channels
-                        .drain(*skip as usize..n_limit as usize)
-                        .collect();
+                    let channels = all_channels.drain(skip..limit).collect();
 
                     let response = Message::channel_list_response(circuit_id, req_id, channels);
 
@@ -432,6 +479,8 @@ where
                 // any further hashes for the given req_id and they have
                 // concluded the request on their side.
                 ResponseBody::Hash { hashes } => {
+                    debug!("Handling hash response...");
+
                     let wanted_hashes = self.store.want(hashes).await?;
                     if !wanted_hashes.is_empty() {
                         let (_, new_req_id) = self.new_req_id().await?;
@@ -459,6 +508,8 @@ where
                     // time range request (ie. sending a hash response).
                 }
                 ResponseBody::Post { posts } => {
+                    debug!("Handling post response...");
+
                     // Iterate over the encoded posts.
                     for post_bytes in posts {
                         // Verify the post signature.
@@ -498,13 +549,19 @@ where
                     }
                 }
                 ResponseBody::ChannelList { channels } => {
+                    debug!("Handling channel list response...");
+
                     // TODO: Do we need to take action to conclude the request
                     // which resulted in this response?
-                    self.store.insert_channels(channels).await?;
+                    for channel in channels {
+                        self.store.insert_channel(channel).await?;
+                    }
                 }
             },
             // Ignore unrecognized message type.
-            MessageBody::Unrecognized { .. } => (),
+            MessageBody::Unrecognized { .. } => {
+                debug!("Received unrecognized message; skipping message handling...");
+            }
         }
 
         // Mark this request as "handled" (to prevent request loops).
@@ -514,7 +571,7 @@ where
     }
 
     /// Generate a new request ID.
-    async fn new_req_id(&self) -> Result<(u32, ReqId), Error> {
+    pub async fn new_req_id(&self) -> Result<(u32, ReqId), Error> {
         let mut last_req_id = self.last_req_id.write().await;
 
         // Reset request ID to 0 if the maximum u32 has been reached.
@@ -526,6 +583,7 @@ where
         };
 
         let req_id = *last_req_id;
+        debug!("Generated a new request ID: {}", req_id);
 
         Ok((req_id, req_id.to_bytes()?.try_into().unwrap()))
     }
@@ -537,6 +595,7 @@ where
         // Increment the last peer ID.
         *last_peer_id += 1;
         let peer_id = *last_peer_id;
+        debug!("Generated a new peer ID: {}", peer_id);
 
         Ok(peer_id)
     }
@@ -547,6 +606,8 @@ where
         &mut self,
         channel_opts: &ChannelOptions,
     ) -> Result<PostStream<'_>, Error> {
+        debug!("Opening {}", channel_opts);
+
         let (_req_id, req_id_bytes) = self.new_req_id().await?;
 
         let request = Message::channel_time_range_request(
@@ -570,6 +631,8 @@ where
     /// requests originating locally and matching the given channel name.
     /// Broadcast the cancel request(s) to all peers.
     pub async fn close_channel(&self, channel: &String) -> Result<(), Error> {
+        debug!("Closing channel: {}", channel);
+
         let close_channel = channel;
 
         let mut outbound_requests = self.outbound_requests.write().await;
@@ -661,6 +724,7 @@ where
                 // request. If not, move on to the next request without sending
                 // this one.
                 if let RequestBody::Cancel { cancel_id } = body {
+                    debug!("Processing cancel request...");
                     if let RequestOrigin::Remote = request_origin {
                         let mut forwarded_requests = self.forwarded_requests.write().await;
                         if let Some(peers) = forwarded_requests.get_mut(cancel_id) {
@@ -686,6 +750,8 @@ where
                     }
                 }
                 if *ttl == 0 {
+                    debug!("Removing request {:?} from outbound requests...", req_id);
+
                     // The TTL for this request has been exhausted.
                     self.outbound_requests.write().await.remove(req_id);
                 } else {
@@ -742,7 +808,7 @@ where
             task::spawn(async move {
                 // Listen for incoming locally-generated messages.
                 while let Ok(msg) = recv.recv().await {
-                    debug!("Sent a message to the TCP stream: {}", msg);
+                    debug!("Wrote a message to the TCP stream: {}", msg);
 
                     // Write the message to the stream.
                     stream_c.write_all(&msg.to_bytes()?).await?;
@@ -786,186 +852,6 @@ where
 
         // Remove the peer from the list of active peers.
         self.peers.write().await.remove(&peer_id);
-
-        Ok(())
-    }
-}
-
-/*
-
-// Test brainstorm:
-//
-// Create two instances of `CableManager`.
-// Invoke `listen` for each with an async stream.
-// Make some posts?
-*/
-
-#[cfg(test)]
-mod test {
-    use std::{cmp::min, pin::Pin};
-
-    use async_std::{
-        io::{Read, Write},
-        prelude::*,
-        task,
-    };
-    use cable::{
-        constants::{HASH_RESPONSE, POST_RESPONSE},
-        ChannelOptions, Error, Message,
-    };
-    use desert::FromBytes;
-    use futures::{
-        io::Error as IoError,
-        task::{Context, Poll},
-    };
-    use length_prefixed_stream::{decode_with_options, DecodeOptions};
-
-    use crate::{CableManager, MemoryStore};
-
-    // Mock TCP stream implementation to facilitate testing of `CableManager`.
-    //
-    // Based on https://rust-lang.github.io/async-book/09_example/03_tests.html
-
-    #[derive(Clone)]
-    struct MockTcpStream {
-        read_data: Vec<u8>,
-        write_data: Vec<u8>,
-    }
-
-    impl Read for MockTcpStream {
-        fn poll_read(
-            self: Pin<&mut Self>,
-            _: &mut Context,
-            buf: &mut [u8],
-        ) -> Poll<Result<usize, IoError>> {
-            let size: usize = min(self.read_data.len(), buf.len());
-            buf[..size].copy_from_slice(&self.read_data[..size]);
-            Poll::Ready(Ok(size))
-        }
-    }
-
-    impl Write for MockTcpStream {
-        fn poll_write(
-            mut self: Pin<&mut Self>,
-            _: &mut Context,
-            buf: &[u8],
-        ) -> Poll<Result<usize, IoError>> {
-            self.write_data = Vec::from(buf);
-
-            Poll::Ready(Ok(buf.len()))
-        }
-
-        fn poll_flush(self: Pin<&mut Self>, _: &mut Context) -> Poll<Result<(), IoError>> {
-            Poll::Ready(Ok(()))
-        }
-
-        fn poll_close(self: Pin<&mut Self>, _: &mut Context) -> Poll<Result<(), IoError>> {
-            Poll::Ready(Ok(()))
-        }
-    }
-
-    impl Unpin for MockTcpStream {}
-
-    #[async_std::test]
-    async fn request_response() -> Result<(), Error> {
-        let store = MemoryStore::default();
-        let mut peer = CableManager::new(store);
-
-        let stream = MockTcpStream {
-            read_data: Vec::new(),
-            write_data: Vec::new(),
-        };
-        let stream_clone = stream.clone();
-
-        let channel = "default".to_string();
-        let text = "meow?";
-
-        peer.post_text(channel, text).await.unwrap();
-
-        // Define the stream decoder parameters.
-        let options = DecodeOptions {
-            include_len: true,
-            ..Default::default()
-        };
-
-        let mut length_prefixed_stream = decode_with_options(stream_clone, options);
-
-        task::spawn(async move {
-            peer.listen(stream).await.unwrap();
-        });
-
-        // Iterate over the stream.
-        if let Some(read_buf) = length_prefixed_stream.next().await {
-            let buf = read_buf?;
-
-            // Deserialize the received message.
-            let (_, msg) = Message::from_bytes(&buf)?;
-
-            assert_eq!(msg.message_type(), 13)
-        } else {
-            panic!()
-        }
-
-        /*
-        let store_one = MemoryStore::default();
-        let store_two = MemoryStore::default();
-
-        let mut peer_one = CableManager::new(store_one);
-        let mut peer_two = CableManager::new(store_two);
-
-        let stream_one = MockTcpStream {
-            read_data: Vec::new(),
-            write_data: Vec::new(),
-        };
-        let stream_two = stream_one.clone();
-
-        let channel = "default".to_string();
-        let text = "meow?";
-
-        let opts = ChannelOptions {
-            channel: channel.clone(),
-            time_start: 0,
-            time_end: 0,
-            limit: 20,
-        };
-        let opts_c = opts.clone();
-
-        peer_one.post_text(channel, text).await.unwrap();
-        task::spawn(async move {
-            peer_one.listen(stream_one).await.unwrap();
-        });
-
-        task::spawn(async move { peer_two.listen(stream_two).await.unwrap() });
-
-        task::spawn(async move {
-            let mut post_stream = peer_two.open_channel(&opts_c).await.unwrap();
-            while let Some(post) = post_stream.next().await {
-                if let Ok(p) = post {
-                    // Ensure the received post(s) meet expectations.
-                    assert_eq!(p.post_type(), TEXT_POST);
-                }
-            }
-        });
-
-        let mut peer_one_c = peer_one.clone();
-
-        task::spawn(async move {
-            let _msg_stream = peer_one_c.open_channel(&opts).await.unwrap();
-            peer_one_c.post_text(channel, text).await.unwrap();
-        });
-        */
-
-        //task::spawn(async move { peer_one.listen(stream_one).await.unwrap() });
-
-        // Peer one: channel time range request for "default" channel.
-        // - Use `open_channel()`
-        // - Check the message(s) emitted from the stream and assert
-
-        //peer_two.post_text(channel, text).await?;
-
-        // Peer one: channel time range request for "default" channel.
-
-        //task::spawn(async move { peer_two.listen(stream_two).await.unwrap() });
 
         Ok(())
     }

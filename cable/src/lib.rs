@@ -53,6 +53,17 @@ impl ChannelOptions {
     }
 }
 
+/// Print channel options.
+impl fmt::Display for ChannelOptions {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "channel: {:?}, start: {}, end: {}, limit: {}",
+            &self.channel, &self.time_start, &self.time_end, &self.limit
+        )
+    }
+}
+
 #[derive(Clone, PartialEq)]
 /// Information self-published by a user.
 pub struct UserInfo {
