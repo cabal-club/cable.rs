@@ -104,12 +104,21 @@ where
             requested_posts: Arc::new(RwLock::new(HashSet::new())),
         }
     }
-}
 
-impl<S> CableManager<S>
-where
-    S: Store,
-{
+    /// Remove the live request defined by the given peer ID and request ID.
+    async fn remove_live_request(&mut self, peer_id: &PeerId, req_id: &ReqId) -> Result<(), Error> {
+        // Remove the request from the map of live requests.
+        let mut live_requests = self.live_requests.write().await;
+        if let Some(peer_requests) = live_requests.get_mut(peer_id) {
+            // Iterate over the peer requests and retain only the
+            // requests for which the ID does not match the given
+            // request ID.
+            peer_requests.retain(|(id, _opts)| id != req_id);
+        }
+
+        Ok(())
+    }
+
     /// Post header value generator.
     async fn post_header_values(
         &mut self,
@@ -226,11 +235,6 @@ where
         let hash = self.store.insert_post(&post).await?;
 
         let channel = post.get_channel();
-
-        // Update the store of known channels.
-        if let Some(channel) = channel {
-            self.store.insert_channel(channel).await?;
-        }
 
         // Send post hashes to all peers for whom we hold inbound requests.
         self.send_post_hashes(channel).await?;
@@ -351,13 +355,7 @@ where
                     self.decrement_ttl_and_write_to_outbound(req_id, msg).await;
 
                     // Remove the request from the map of live requests.
-                    let mut live_requests = self.live_requests.write().await;
-                    if let Some(peer_requests) = live_requests.get_mut(&peer_id) {
-                        // Iterate over the peer requests and retain only the
-                        // requests for which the ID does not match the given
-                        // cancel ID.
-                        peer_requests.retain(|(id, _opts)| id != cancel_id);
-                    }
+                    self.remove_live_request(&peer_id, cancel_id).await?;
 
                     // Remove the request from the list of outbound requests.
                     // The associated message will no longer be sent to peers.
@@ -409,15 +407,30 @@ where
 
                     self.send(peer_id, &response).await?;
                 }
-                RequestBody::ChannelState {
-                    channel: _,
-                    future: _,
-                } => {
+                RequestBody::ChannelState { channel, future: _ } => {
                     debug!("Handling channel state request...");
 
                     if *ttl > 0 {
                         self.decrement_ttl_and_write_to_outbound(req_id, msg).await;
                     }
+
+                    // Get the hash of the latest join or leave post for all
+                    // channel members and ex-members.
+                    let mut channel_membership_hashes =
+                        self.store.get_channel_membership_hashes(channel).await?;
+
+                    // If a topic has been set for the channel, return the hash
+                    // of the post.
+                    if let Some(topic_and_hash) =
+                        self.store.get_channel_topic_and_hash(channel).await?
+                    {
+                        channel_membership_hashes.push(topic_and_hash.1)
+                    }
+
+                    let response =
+                        Message::hash_response(circuit_id, req_id, channel_membership_hashes);
+
+                    self.send(peer_id, &response).await?
 
                     /*
                     TODO: We will require channel state indexes before this
