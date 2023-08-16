@@ -165,7 +165,13 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
     /// Insert the given post into the store and return the hash.
     async fn insert_post(&mut self, post: &Post) -> Result<Hash, Error>;
 
+    /// Remove the given post from the posts and post hashes stores.
+    async fn remove_post(&mut self, hash: &Hash) -> Result<(), Error>;
+
     /// Delete the given post from all stores, leaving no trace.
+    ///
+    /// This method combines several removal methods to achieve complete
+    /// removal of the post.
     async fn delete_post(&mut self, hash: &Hash) -> Result<(), Error>;
 
     /// Retrieve all posts matching the parameters defined by the given
@@ -651,11 +657,47 @@ impl Store for MemoryStore {
         Ok(hash)
     }
 
+    // TODO: Consider splitting this into two separate methods:
+    //
+    // `remove_post()` and `remove_post_payload()`
+    //
+    // Do the same for `insert_post()` and `insert_post_payload()`.
+    async fn remove_post(&mut self, hash: &Hash) -> Result<(), Error> {
+        // Open the post store for writing.
+        let mut posts = self.posts.write().await;
+
+        // Iterate over all key-value pairs in the hash map.
+        //
+        // The `post_map` is a `BTreeMap`.
+        posts.iter_mut().for_each(|(_channel, post_map)| {
+            // Iterate over the key-value pairs of the post map.
+            post_map.iter_mut().for_each(|(_timestamp, post_vec)| {
+                // Remove any tuple from the vector for which the stored
+                // hash matches the given hash.
+                post_vec.retain(|(_post, stored_hash)| stored_hash != hash)
+            })
+        });
+
+        // Open the post payloads store for writing.
+        let mut post_payloads = self.post_payloads.write().await;
+
+        // Remove any post payload for which the stored hash matches the given
+        // hash.
+        post_payloads.retain(|stored_hash, _payload| stored_hash != hash);
+
+        Ok(())
+    }
+
     async fn delete_post(&mut self, hash: &Hash) -> Result<(), Error> {
         // Remove post from all stores.
 
+        // TODO: We have to check the author of the `post/delete` message
+        // to ensure it matches the author of the target post before moving
+        // ahead with deletion.
+
         self.remove_channel_topic(hash).await?;
         self.remove_channel_membership_hash(hash).await?;
+        self.remove_post(hash).await?;
 
         Ok(())
     }
