@@ -13,6 +13,33 @@
 //!
 //! 2) Send a channel state request for the "entomology" channel. Ensure that
 //! a single hash is returned and that it matches the hash of the join post.
+//!
+//! 3) Publish a leave post to the "entomology" channel.
+//!
+//! 4) Send a channel state request for the "entomology" channel. Ensure that
+//! a single hash is returned and that it matches the hash of the leave post.
+//!
+//! 5) Publish a topic post to the "entomology" channel.
+//!
+//! 6) Send a channel state request for the "entomology" channel. Ensure that
+//! two hashes are returned: one matcing the hash of the leave post and one
+//! matching the hash of the topic post.
+//!
+//! 7) Publish a second topic post to the "entomology" channel.
+//!
+//! 8) Send a channel state request for the "entomology" channel. Ensure that
+//! two hashes are returned: one matching the hash of the leave post and one
+//! matching the hash of the second topic post.
+//!
+//! 9) Publish a delete post with the hash of the second topic post.
+//!
+//! 10) Send a channel state request for the "entomology" channel. Ensure that
+//! two hashes are returned: one matching the hash of the leave post and one
+//! matching the hash of the first topic post.
+
+// TODO: Update this test suite once live request handling is in place for
+// channel state requests (like it currently is for channel time range
+// requests).
 
 use std::{thread, time::Duration};
 
@@ -214,6 +241,11 @@ async fn channel_state_request_response() -> Result<(), Error> {
         }
     }
 
+    // Sleep briefly to ensure that the second topic post has a timestamp
+    // larger than the first.
+    let one_second = Duration::from_millis(1000);
+    thread::sleep(one_second);
+
     let second_topic =
         "Insect appreciation; please don't ask for identification assistance".to_string();
 
@@ -259,6 +291,10 @@ async fn channel_state_request_response() -> Result<(), Error> {
 
     // Delete the second (most recent) topic post for the "entomology" channel.
     let _delete_topic_hash = cable.post_delete(vec![second_topic_hash]).await?;
+
+    // Sleep briefly to allow time for the deletion to occur.
+    let five_millis = Duration::from_millis(5);
+    thread::sleep(five_millis);
 
     /* FOURTH REQUEST */
 
