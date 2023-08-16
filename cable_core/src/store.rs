@@ -14,12 +14,15 @@ use async_std::{
 };
 use cable::{
     post::{Post, PostBody},
-    Channel, ChannelOptions, Error, Hash, Payload,
+    Channel, ChannelOptions, Error, Hash, Payload, Timestamp, Topic,
 };
 use desert::ToBytes;
 use sodiumoxide::crypto;
 
 use crate::stream::{HashStream, LiveStream, PostStream};
+
+/// A public key.
+pub type PublicKey = [u8; 32];
 
 /// A public-private keypair.
 pub type Keypair = ([u8; 32], [u8; 64]);
@@ -36,6 +39,12 @@ pub type PostHashMap = HashMap<Channel, BTreeMap<u64, Vec<Hash>>>;
 /// A `HashMap` of live streams with a key of channel name and a value
 /// of a `Vec` of streams (wrapped in an `Arc` and `RwLock`).
 pub type LiveStreamMap = HashMap<Channel, Arc<RwLock<Vec<LiveStream>>>>;
+
+/// A `HashMap` of channel topics with a key of channel name and a value of a
+/// `BTreeMap`. The `BTreeMap` has a key of timestamp and a value of a tuple
+/// of topic and hash. The hash is of the `post/topic` post which defined the
+/// stored topic.
+pub type TopicHashMap = HashMap<Channel, BTreeMap<Timestamp, (Topic, Hash)>>;
 
 #[async_trait::async_trait]
 /// Storage trait with methods for storing and retrieving cryptographic
@@ -77,8 +86,84 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
     /// Retrieve all channels from the store.
     async fn get_channels<'a>(&'a mut self) -> Result<Vec<Channel>, Error>;
 
+    /// Insert the given public key into the store using the key defined by the
+    /// given channel.
+    async fn insert_channel_member(
+        &mut self,
+        channel: &Channel,
+        public_key: &PublicKey,
+    ) -> Result<(), Error>;
+
+    /// Remove the given public key from the membership store using the key
+    /// defined by the given channel.
+    async fn remove_channel_member(
+        &mut self,
+        channel: &Channel,
+        public_key: &PublicKey,
+    ) -> Result<(), Error>;
+
+    /// Retrieve all members of the given channel.
+    async fn get_channel_members<'a>(
+        &'a mut self,
+        channel: &Channel,
+    ) -> Result<Vec<PublicKey>, Error>;
+
+    /// Update the membership store with the hash of the latest `post/join` or
+    /// `post/leave` post made to the given channel by the given public key.
+    async fn update_channel_membership_hashes(
+        &mut self,
+        channel: &Channel,
+        public_key: &PublicKey,
+        hash: &Hash,
+    ) -> Result<(), Error>;
+
+    /// Retrieve all of the latest `post/join` or `post/leave` post hashes
+    /// for the given channel.
+    async fn get_channel_membership_hashes<'a>(
+        &'a mut self,
+        channel: &Channel,
+    ) -> Result<Vec<Hash>, Error>;
+
+    /// Remove the channel membership data for the given post hash.
+    async fn remove_channel_membership_hash(&mut self, hash: &Hash) -> Result<(), Error>;
+
+    /// Insert the given channel topic, timestamp and hash into the store if
+    /// the timestamp is later than the timestamp of the stored topic post.
+    async fn insert_channel_topic(
+        &mut self,
+        channel: &Channel,
+        topic: &Topic,
+        timestamp: &Timestamp,
+        hash: &Hash,
+    ) -> Result<(), Error>;
+
+    /// Remove the channel topic data for the given post hash.
+    async fn remove_channel_topic(&mut self, hash: &Hash) -> Result<(), Error>;
+
+    /// Retrieve the latest `post/topic` topic and hash for the given channel.
+    async fn get_channel_topic_and_hash<'a>(
+        &'a mut self,
+        channel: &Channel,
+    ) -> Result<Option<(Topic, Hash)>, Error>;
+
+    /*
+    /// Insert the given hash into the store using the key defined by the
+    /// given public key.
+    async fn insert_latest_join_or_leave_post_hash(
+        &mut self,
+        public_key: &PublicKey,
+        hash: Hash,
+    ) -> Result<(), Error>;
+
+    /// Retrieve the latest join or leave post hash for all known peers.
+    async fn get_latest_join_or_leave_post_hashes<'a>(&'a mut self) -> Result<Vec<Hash>, Error>;
+    */
+
     /// Insert the given post into the store and return the hash.
     async fn insert_post(&mut self, post: &Post) -> Result<Hash, Error>;
+
+    /// Delete the given post from all stores, leaving no trace.
+    async fn delete_post(&mut self, hash: &Hash) -> Result<(), Error>;
 
     /// Retrieve all posts matching the parameters defined by the given
     /// `ChannelOptions`.
@@ -108,6 +193,18 @@ pub struct MemoryStore {
     keypair: Keypair,
     /// All channels in the store.
     channels: Arc<RwLock<BTreeSet<Channel>>>,
+    /// The public keys of all members, indexed by channel.
+    ///
+    /// This map is updated according to received / published `post/join`
+    /// and `post/leave` posts.
+    channel_members: Arc<RwLock<HashMap<Channel, Vec<[u8; 32]>>>>,
+    /// The hash of the latest `post/join` or `post/leave` post for each known
+    /// peer, indexed by channel (the outer key) and public key (the first
+    /// element of the tuple).
+    channel_membership: Arc<RwLock<HashMap<Channel, HashMap<PublicKey, Hash>>>>,
+    /// The topic, timestamp and hash of the latest `post/topic` post for each
+    /// known channel, indexed by channel.
+    channel_topics: Arc<RwLock<TopicHashMap>>,
     /// All posts in the store divided according to channel (the outer key)
     /// and indexed by timestamp (the inner key).
     posts: Arc<RwLock<PostMap>>,
@@ -138,6 +235,9 @@ impl Default for MemoryStore {
                 sk.as_ref().try_into().unwrap(),
             ),
             channels: Arc::new(RwLock::new(BTreeSet::new())),
+            channel_members: Arc::new(RwLock::new(HashMap::new())),
+            channel_membership: Arc::new(RwLock::new(HashMap::new())),
+            channel_topics: Arc::new(RwLock::new(HashMap::new())),
             posts: Arc::new(RwLock::new(HashMap::new())),
             post_hashes: Arc::new(RwLock::new(HashMap::new())),
             post_payloads: Arc::new(RwLock::new(HashMap::new())),
@@ -190,6 +290,217 @@ impl Store for MemoryStore {
         Ok(channels)
     }
 
+    async fn insert_channel_member(
+        &mut self,
+        channel: &Channel,
+        public_key: &PublicKey,
+    ) -> Result<(), Error> {
+        // Open the channel members store for writing.
+        let mut channel_members = self.channel_members.write().await;
+        // Retrieve the stored members matching the given channel.
+        if let Some(members) = channel_members.get_mut(channel) {
+            // Add the public key to the vector of public keys indexed by the
+            // given channel.
+            members.push(public_key.to_owned())
+        } else {
+            // Insert the channel into the hash map, using the
+            // given public key to create the value vec.
+            channel_members.insert(channel.to_owned(), vec![*public_key]);
+        }
+
+        Ok(())
+    }
+
+    async fn remove_channel_member(
+        &mut self,
+        channel: &Channel,
+        public_key: &PublicKey,
+    ) -> Result<(), Error> {
+        // Open the channel members store for writing.
+        let mut channel_members = self.channel_members.write().await;
+        // Retrieve the stored members matching the given channel.
+        if let Some(members) = channel_members.get_mut(channel) {
+            // Iterate over the members and retain only those for which the
+            // member does not match the given public key.
+            members.retain(|member| member != public_key);
+        }
+
+        Ok(())
+    }
+
+    async fn get_channel_members(&mut self, channel: &Channel) -> Result<Vec<PublicKey>, Error> {
+        let channel_members = self
+            .channel_members
+            .read()
+            .await
+            .get(channel)
+            .map(|member| member.to_owned())
+            // Return an empty vector if no members are found matching the
+            // given channel.
+            .unwrap_or(Vec::new());
+
+        Ok(channel_members)
+    }
+
+    async fn update_channel_membership_hashes(
+        &mut self,
+        channel: &Channel,
+        public_key: &PublicKey,
+        hash: &Hash,
+    ) -> Result<(), Error> {
+        // Open the channel members store for writing.
+        let mut channel_membership = self.channel_membership.write().await;
+        // Retrieve the stored public key / hash hash map matching the given
+        // channel.
+        if let Some(membership_map) = channel_membership.get_mut(channel) {
+            // Add the public key to the vector of public keys indexed by the
+            // given channel.
+            membership_map.insert(public_key.to_owned(), *hash);
+        } else {
+            // No hashes have previously been stored for the
+            // given channel.
+
+            let mut membership_map = HashMap::new();
+            membership_map.insert(*public_key, *hash);
+
+            // Insert the members hash map into the channel membership hash map.
+            channel_membership.insert(channel.to_owned(), membership_map);
+        }
+
+        Ok(())
+    }
+
+    async fn get_channel_membership_hashes(
+        &mut self,
+        channel: &Channel,
+    ) -> Result<Vec<Hash>, Error> {
+        let channel_membership: Vec<Hash> = self
+            .channel_membership
+            .read()
+            .await
+            .get(channel)
+            // Return an empty map if no posts are found matching the given
+            // channel.
+            .unwrap_or(&HashMap::new())
+            // Retrieve the hash for each entry in the hash map.
+            .values()
+            .cloned()
+            .collect();
+
+        Ok(channel_membership)
+    }
+
+    async fn remove_channel_membership_hash(&mut self, hash: &Hash) -> Result<(), Error> {
+        // Open the channel membership store for writing.
+        let mut channel_membership = self.channel_membership.write().await;
+
+        // Iterate over all key-value pairs in the hash map.
+        //
+        // The `membership_map` is a `HashMap`.
+        channel_membership
+            .iter_mut()
+            .for_each(|(_channel, membership_map)| {
+                // Remove any key-value pair for which the stored hash of the join
+                // or leave post matches the given hash.
+                membership_map.retain(|_public_key, stored_hash| stored_hash != hash)
+            });
+
+        Ok(())
+    }
+
+    async fn insert_channel_topic(
+        &mut self,
+        channel: &Channel,
+        topic: &Topic,
+        timestamp: &Timestamp,
+        hash: &Hash,
+    ) -> Result<(), Error> {
+        // Open the channel topics store for writing.
+        let mut channel_topics = self.channel_topics.write().await;
+        // Retrieve the stored tuple of topic, timestamp and hash matching the
+        // given channel.
+        if let Some(topic_map) = channel_topics.get_mut(channel) {
+            // Insert the given topic and hash into the map, using the
+            // timestamp as the key.
+            topic_map.insert(*timestamp, (topic.to_owned(), *hash));
+        } else {
+            // No topic data has previously been stored for the
+            // given channel.
+
+            let mut topic_map = BTreeMap::new();
+            // Insert the topic data into the `BTreeMap`, using the timestamp
+            // as the key.
+            topic_map.insert(*timestamp, (topic.to_owned(), *hash));
+            // Insert the `BTreeMap` into the channel topics `HashMap`,
+            // using the channel name as the key.
+            channel_topics.insert(channel.to_owned(), topic_map);
+        }
+
+        Ok(())
+    }
+
+    async fn remove_channel_topic(&mut self, hash: &Hash) -> Result<(), Error> {
+        // Open the channel topics store for writing.
+        let mut channel_topics = self.channel_topics.write().await;
+
+        // Iterate over all key-value pairs in the hash map.
+        //
+        // The `topic_map` is a `BTreeMap`.
+        channel_topics.iter_mut().for_each(|(_channel, topic_map)| {
+            // Remove any key-value pair for which the stored hash of the topic
+            // post matches the given hash.
+            topic_map.retain(|_timestamp, (_topic, stored_hash)| stored_hash != hash)
+        });
+
+        Ok(())
+    }
+
+    async fn get_channel_topic_and_hash<'a>(
+        &'a mut self,
+        channel: &Channel,
+    ) -> Result<Option<(Topic, Hash)>, Error> {
+        let channel_topic = self
+            .channel_topics
+            .read()
+            .await
+            .get(channel)
+            .and_then(|topics| {
+                topics
+                    // Get the key-value pair with the largest timestamp.
+                    .last_key_value()
+                    // Ignore the key (timestamp); return the topic and hash.
+                    .map(|(_, (topic, hash))| (topic.to_owned(), hash.to_owned()))
+            });
+
+        Ok(channel_topic)
+    }
+
+    /*
+    async fn insert_latest_join_or_leave_post_hash(
+        &mut self,
+        public_key: &PublicKey,
+        hash: Hash,
+    ) -> Result<(), Error> {
+        // Open the latest join or leave post store for writing.
+        let mut latest_join_or_leave = self.latest_join_or_leave_post_hashes.write().await;
+        latest_join_or_leave.insert(*public_key, hash);
+
+        Ok(())
+    }
+
+    async fn get_latest_join_or_leave_post_hashes<'a>(&'a mut self) -> Result<Vec<Hash>, Error> {
+        let hashes = self
+            .latest_join_or_leave_post_hashes
+            .read()
+            .await
+            .iter()
+            .map(|(_public_key, hash)| hash.to_owned())
+            .collect();
+
+        Ok(hashes)
+    }
+    */
+
     async fn insert_post(&mut self, post: &Post) -> Result<Hash, Error> {
         let timestamp = &post.get_timestamp();
 
@@ -199,80 +510,77 @@ impl Store for MemoryStore {
         match &post.body {
             // TODO: Include matching arms for other post types.
             PostBody::Text { channel, text: _ } => {
-                {
-                    // Open the post store for writing.
-                    let mut posts = self.posts.write().await;
+                // Open the post store for writing.
+                let mut posts = self.posts.write().await;
 
-                    // Retrieve the stored posts matching the given channel.
-                    if let Some(post_map) = posts.get_mut(channel) {
-                        // Retrieve the stored posts matching the given
-                        // timestamp.
-                        if let Some(posts) = post_map.get_mut(timestamp) {
-                            // Add the post to the vector of posts indexed
-                            // by the given timestamp.
-                            posts.push(post.clone());
-                        } else {
-                            // Insert the post (as a `Vec`) into the `BTreeMap`,
-                            // using the timestamp as the key.
-                            post_map.insert(*timestamp, vec![post.clone()]);
-                        }
+                // Retrieve the stored posts matching the given channel.
+                if let Some(post_map) = posts.get_mut(channel) {
+                    // Retrieve the stored posts matching the given
+                    // timestamp.
+                    if let Some(posts) = post_map.get_mut(timestamp) {
+                        // Add the post to the vector of posts indexed
+                        // by the given timestamp.
+                        posts.push(post.clone());
                     } else {
-                        // No posts have previously been stored for the
-                        // given channel.
-
-                        let mut post_map = BTreeMap::new();
                         // Insert the post (as a `Vec`) into the `BTreeMap`,
                         // using the timestamp as the key.
                         post_map.insert(*timestamp, vec![post.clone()]);
-                        // Insert the `BTreeMap` into the posts `HashMap`,
-                        // using the channel name as the key.
-                        posts.insert(channel.to_owned(), post_map);
                     }
+                } else {
+                    // No posts have previously been stored for the
+                    // given channel.
+
+                    let mut post_map = BTreeMap::new();
+                    // Insert the post (as a `Vec`) into the `BTreeMap`,
+                    // using the timestamp as the key.
+                    post_map.insert(*timestamp, vec![post.clone()]);
+                    // Insert the `BTreeMap` into the posts `HashMap`,
+                    // using the channel name as the key.
+                    posts.insert(channel.to_owned(), post_map);
                 }
-                {
-                    // Open the post hashes store for writing.
-                    let mut post_hashes = self.post_hashes.write().await;
 
+                // Open the post hashes store for writing.
+                let mut post_hashes = self.post_hashes.write().await;
+
+                // Retrieve the stored post hashes matching the given
+                // channel.
+                if let Some(hash_map) = post_hashes.get_mut(channel) {
                     // Retrieve the stored post hashes matching the given
-                    // channel.
-                    if let Some(hash_map) = post_hashes.get_mut(channel) {
-                        // Retrieve the stored post hashes matching the given
-                        // timestamp.
-                        if let Some(hashes) = hash_map.get_mut(timestamp) {
-                            // Add the hash to the vector of hashes indexed by
-                            // the given timestamp.
-                            hashes.push(hash);
-                        } else {
-                            // Insert the hash (as a `Vec`) into the `BTreeMap`,
-                            // using the timestampas the key.
-                            hash_map.insert(*timestamp, vec![hash]);
-                        }
-
-                        // Insert the binary payload of the post into the
-                        // `HashMap` of post data, indexed by the hash.
-                        self.post_payloads
-                            .write()
-                            .await
-                            .insert(hash, post.to_bytes()?);
+                    // timestamp.
+                    if let Some(hashes) = hash_map.get_mut(timestamp) {
+                        // Add the hash to the vector of hashes indexed by
+                        // the given timestamp.
+                        hashes.push(hash);
                     } else {
-                        // No hashes have previously been stored for the
-                        // given channel.
-
-                        let mut hash_map = BTreeMap::new();
                         // Insert the hash (as a `Vec`) into the `BTreeMap`,
-                        // using the timestamp as the key.
+                        // using the timestampas the key.
                         hash_map.insert(*timestamp, vec![hash]);
-                        // Insert the `BTreeMap` into the post hashes `HashMap`,
-                        // using the channel name as the key.
-                        post_hashes.insert(channel.to_owned(), hash_map);
-
-                        // Insert the binary payload of the post into the
-                        // `HashMap` of post data, indexed by the hash.
-                        self.post_payloads
-                            .write()
-                            .await
-                            .insert(hash, post.to_bytes()?);
                     }
+
+                    // Insert the binary payload of the post into the
+                    // `HashMap` of post data, indexed by the hash.
+                    self.post_payloads
+                        .write()
+                        .await
+                        .insert(hash, post.to_bytes()?);
+                } else {
+                    // No hashes have previously been stored for the
+                    // given channel.
+
+                    let mut hash_map = BTreeMap::new();
+                    // Insert the hash (as a `Vec`) into the `BTreeMap`,
+                    // using the timestamp as the key.
+                    hash_map.insert(*timestamp, vec![hash]);
+                    // Insert the `BTreeMap` into the post hashes `HashMap`,
+                    // using the channel name as the key.
+                    post_hashes.insert(channel.to_owned(), hash_map);
+
+                    // Insert the binary payload of the post into the
+                    // `HashMap` of post data, indexed by the hash.
+                    self.post_payloads
+                        .write()
+                        .await
+                        .insert(hash, post.to_bytes()?);
                 }
 
                 // If we have open live streams matching the channel to which
@@ -287,10 +595,54 @@ impl Store for MemoryStore {
                     }
                 }
             }
+            PostBody::Join { channel } => {
+                let public_key = &post.get_public_key();
+
+                self.update_channel_membership_hashes(channel, public_key, &hash)
+                    .await?;
+
+                self.insert_channel_member(channel, public_key).await?;
+            }
+            PostBody::Leave { channel } => {
+                let public_key = &post.get_public_key();
+
+                self.update_channel_membership_hashes(channel, public_key, &hash)
+                    .await?;
+
+                self.remove_channel_member(channel, public_key).await?;
+            }
+            PostBody::Topic { channel, topic } => {
+                self.insert_channel_topic(channel, topic, timestamp, &hash)
+                    .await?;
+            }
+            PostBody::Delete { hashes } => {
+                // Places / stores for checking and deletion:
+                //
+                // channel_topics
+                for hash in hashes {
+                    self.delete_post(hash).await?
+                }
+            }
             _ => {}
         }
 
+        let channel = post.get_channel();
+
+        // Update the store of known channels.
+        if let Some(channel) = channel {
+            self.insert_channel(channel).await?;
+        }
+
         Ok(hash)
+    }
+
+    async fn delete_post(&mut self, hash: &Hash) -> Result<(), Error> {
+        // Remove post from all stores.
+
+        self.remove_channel_topic(hash).await?;
+        self.remove_channel_membership_hash(hash).await?;
+
+        Ok(())
     }
 
     async fn get_posts(&mut self, opts: &ChannelOptions) -> Result<PostStream, Error> {
