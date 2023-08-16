@@ -28,13 +28,16 @@ pub type PublicKey = [u8; 32];
 pub type Keypair = ([u8; 32], [u8; 64]);
 
 /// A `HashMap` of posts with a key of channel name and a value of a `BTreeMap`.
-/// The `BTreeMap` has a key of timestamp and value of a `Vec` of posts.
-pub type PostMap = HashMap<Channel, BTreeMap<u64, Vec<Post>>>;
+/// The `BTreeMap` has a key of timestamp and value of a `Vec` of tuple with
+/// post and post hash.
+pub type PostMap = HashMap<Channel, BTreeMap<u64, Vec<(Post, Hash)>>>;
 
+/*
 /// A `HashMap` of post hashes with a key of channel name and a value of a
 /// `BTreeMap`. The `BTreeMap` has a key of timestamp and value of a `Vec`
 /// of post hashes.
 pub type PostHashMap = HashMap<Channel, BTreeMap<u64, Vec<Hash>>>;
+*/
 
 /// A `HashMap` of live streams with a key of channel name and a value
 /// of a `Vec` of streams (wrapped in an `Arc` and `RwLock`).
@@ -205,18 +208,18 @@ pub struct MemoryStore {
     /// The topic, timestamp and hash of the latest `post/topic` post for each
     /// known channel, indexed by channel.
     channel_topics: Arc<RwLock<TopicHashMap>>,
-    /// All posts in the store divided according to channel (the outer key)
-    /// and indexed by timestamp (the inner key).
+    /// All posts and hashes in the store divided according to channel (the
+    /// outer key) and indexed by timestamp (the inner key).
     posts: Arc<RwLock<PostMap>>,
+    /*
     /// All post hashes in the store divided according to channel (the outer
     /// key) and indexed by timestamp (the inner key).
     post_hashes: Arc<RwLock<PostHashMap>>,
+    */
     /// Binary payloads for all posts in the store, indexed by the post hash.
     post_payloads: Arc<RwLock<HashMap<Hash, Payload>>>,
-    /// An empty `BTreeMap` of posts, indexed by timestamp.
-    empty_post_bt: BTreeMap<u64, Vec<Post>>,
-    /// An empty `BTreeMap` of post hashes, indexed by timestamp.
-    empty_hash_bt: BTreeMap<u64, Vec<Hash>>,
+    /// An empty `BTreeMap` of posts and hashes, indexed by timestamp.
+    empty_post_bt: BTreeMap<u64, Vec<(Post, Hash)>>,
     /// All active live streams, indexed by channel.
     live_streams: Arc<RwLock<LiveStreamMap>>,
     /// The unique identifier of a live stream.
@@ -239,10 +242,9 @@ impl Default for MemoryStore {
             channel_membership: Arc::new(RwLock::new(HashMap::new())),
             channel_topics: Arc::new(RwLock::new(HashMap::new())),
             posts: Arc::new(RwLock::new(HashMap::new())),
-            post_hashes: Arc::new(RwLock::new(HashMap::new())),
+            //post_hashes: Arc::new(RwLock::new(HashMap::new())),
             post_payloads: Arc::new(RwLock::new(HashMap::new())),
             empty_post_bt: BTreeMap::new(),
-            empty_hash_bt: BTreeMap::new(),
             live_streams: Arc::new(RwLock::new(HashMap::new())),
             live_stream_id: Arc::new(Mutex::new(0)),
         }
@@ -262,15 +264,19 @@ impl Store for MemoryStore {
     }
 
     async fn get_latest_hashes(&mut self, channel: &Channel) -> Option<Vec<Hash>> {
-        // Open the post hashes store for reading.
-        let post_hashes_map = self.post_hashes.read().await;
+        // Open the posts store for reading.
+        let posts_map = self.posts.read().await;
 
         // Get the BTree associated with the given channel.
-        if let Some(post_hashes_btree) = post_hashes_map.get(channel) {
+        if let Some(posts_btree) = posts_map.get(channel) {
             // Return the most recently added hash(es).
-            post_hashes_btree
-                .last_key_value()
-                .map(|(_, hash)| hash.to_owned())
+            posts_btree.last_key_value().map(|(_, post_vec)| {
+                post_vec
+                    .iter()
+                    // Only return the hash from each tuple in the vector.
+                    .map(|(_post, hash)| hash.to_owned())
+                    .collect()
+            })
         } else {
             None
         }
@@ -520,11 +526,11 @@ impl Store for MemoryStore {
                     if let Some(posts) = post_map.get_mut(timestamp) {
                         // Add the post to the vector of posts indexed
                         // by the given timestamp.
-                        posts.push(post.clone());
+                        posts.push((post.clone(), hash));
                     } else {
-                        // Insert the post (as a `Vec`) into the `BTreeMap`,
-                        // using the timestamp as the key.
-                        post_map.insert(*timestamp, vec![post.clone()]);
+                        // Insert the post and post hash (as a `Vec` of tuple)
+                        // into the `BTreeMap`, using the timestamp as the key.
+                        post_map.insert(*timestamp, vec![(post.clone(), hash)]);
                     }
                 } else {
                     // No posts have previously been stored for the
@@ -533,12 +539,20 @@ impl Store for MemoryStore {
                     let mut post_map = BTreeMap::new();
                     // Insert the post (as a `Vec`) into the `BTreeMap`,
                     // using the timestamp as the key.
-                    post_map.insert(*timestamp, vec![post.clone()]);
+                    post_map.insert(*timestamp, vec![(post.clone(), hash)]);
                     // Insert the `BTreeMap` into the posts `HashMap`,
                     // using the channel name as the key.
                     posts.insert(channel.to_owned(), post_map);
                 }
 
+                // Insert the binary payload of the post into the
+                // `HashMap` of post data, indexed by the hash.
+                self.post_payloads
+                    .write()
+                    .await
+                    .insert(hash, post.to_bytes()?);
+
+                /*
                 // Open the post hashes store for writing.
                 let mut post_hashes = self.post_hashes.write().await;
 
@@ -582,6 +596,7 @@ impl Store for MemoryStore {
                         .await
                         .insert(hash, post.to_bytes()?);
                 }
+                */
 
                 // If we have open live streams matching the channel to which
                 // this post was published...
@@ -655,7 +670,9 @@ impl Store for MemoryStore {
             // channel.
             .unwrap_or(&self.empty_post_bt)
             .range(opts.time_start..opts.time_end)
-            .flat_map(|(_time, posts)| posts.iter().map(|post| Ok(post.clone())))
+            // Iterate over the post data and extract the post for each one,
+            // wrapping it in a `Result`.
+            .flat_map(|(_time, posts)| posts.iter().map(|(post, _hash)| Ok(post.clone())))
             .collect::<Vec<Result<Post, Error>>>();
 
         Ok(Box::new(stream::from_iter(posts.into_iter())))
@@ -716,10 +733,10 @@ impl Store for MemoryStore {
     async fn get_post_hashes(&mut self, opts: &ChannelOptions) -> Result<HashStream, Error> {
         let start = opts.time_start;
         let end = opts.time_end;
-        let empty = self.empty_hash_bt.range(..);
+        let empty = self.empty_post_bt.range(..);
 
         let hashes = self
-            .post_hashes
+            .posts
             .read()
             .await
             .get(&opts.channel)
@@ -732,7 +749,9 @@ impl Store for MemoryStore {
                 _ => x.range(start..end),
             })
             .unwrap_or(empty)
-            .flat_map(|(_time, hashes)| hashes.iter().map(|hash| Ok(*hash)))
+            // Iterate over the post data and extract the hash for each one,
+            // wrapping it in a `Result`.
+            .flat_map(|(_time, posts)| posts.iter().map(|(_post, hash)| Ok(*hash)))
             .collect::<Vec<Result<Hash, Error>>>();
 
         Ok(Box::new(stream::from_iter(hashes.into_iter())))
