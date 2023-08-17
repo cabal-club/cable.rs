@@ -11,31 +11,30 @@
 //!
 //! 1) Publish a join post to the "entomology" channel.
 //!
-//! 2) Send a channel state request for the "entomology" channel. Ensure that
+//! 2) Send a channel state request for the "entomology" channel with `future`
+//! set to 1 (requesting ongoing hash responses for each change of the channel
+//! state). Ensure that
 //! a single hash is returned and that it matches the hash of the join post.
 //!
 //! 3) Publish a leave post to the "entomology" channel.
 //!
-//! 4) Send a channel state request for the "entomology" channel. Ensure that
-//! a single hash is returned and that it matches the hash of the leave post.
+//! 4) Ensure that a single hash is returned and that it matches the hash of
+//! the leave post.
 //!
 //! 5) Publish a topic post to the "entomology" channel.
 //!
-//! 6) Send a channel state request for the "entomology" channel. Ensure that
-//! two hashes are returned: one matcing the hash of the leave post and one
-//! matching the hash of the topic post.
+//! 6) Ensure that two hashes are returned: one matcing the hash of the leave
+//! post and one matching the hash of the topic post.
 //!
 //! 7) Publish a second topic post to the "entomology" channel.
 //!
-//! 8) Send a channel state request for the "entomology" channel. Ensure that
-//! two hashes are returned: one matching the hash of the leave post and one
-//! matching the hash of the second topic post.
+//! 8) Ensure that two hashes are returned: one matching the hash of the leave
+//! post and one matching the hash of the second topic post.
 //!
 //! 9) Publish a delete post with the hash of the second topic post.
 //!
-//! 10) Send a channel state request for the "entomology" channel. Ensure that
-//! two hashes are returned: one matching the hash of the leave post and one
-//! matching the hash of the first topic post.
+//! 10) Ensure that two hashes are returned: one matching the hash of the leave
+//! post and one matching the hash of the first topic post.
 
 // TODO: Update this test suite once live request handling is in place for
 // channel state requests (like it currently is for channel time range
@@ -125,8 +124,11 @@ async fn channel_state_request_response() -> Result<(), Error> {
     let (_req_id, req_id_bytes) = cable.new_req_id().await?;
 
     // Create a channel state request.
+    //
+    // Future is set to 1; we will automatically receive hash responses when
+    // the "entomology" channel state changes.
     let channel_state_req =
-        Message::channel_state_request(CIRCUIT_ID, req_id_bytes, TTL, channel.clone(), 0);
+        Message::channel_state_request(CIRCUIT_ID, req_id_bytes, TTL, channel.clone(), 1);
     let req_bytes = channel_state_req.to_bytes()?;
 
     // Write the request bytes to the stream.
@@ -154,21 +156,10 @@ async fn channel_state_request_response() -> Result<(), Error> {
         }
     }
 
+    /* SECOND RESPONSE */
+
     // Publish a post to leave the "entomology" channel.
     let leave_post_hash = cable.post_leave(&channel).await?;
-
-    /* SECOND REQUEST */
-
-    // Generate a novel request ID.
-    let (_req_id, req_id_bytes) = cable.new_req_id().await?;
-
-    // Create a channel state request.
-    let channel_state_req =
-        Message::channel_state_request(CIRCUIT_ID, req_id_bytes, TTL, channel.clone(), 0);
-    let req_bytes = channel_state_req.to_bytes()?;
-
-    // Write the request bytes to the stream.
-    stream.write_all(&req_bytes).await?;
 
     // Sleep briefly to allow time for the cable manager to respond.
     let five_millis = Duration::from_millis(5);
@@ -192,30 +183,12 @@ async fn channel_state_request_response() -> Result<(), Error> {
         }
     }
 
-    // Set topic for channel.
-    // Get hash of channel topic.
-    // Update topic for channel.
-    // Get hash of channel topic.
-    // Delete latest topic for channel.
-    // Get hash of channel topic (must be the first topic).
+    /* THIRD RESPONSE */
 
     let first_topic = "Insect appreciation and identification assistance".to_string();
 
     // Publish a post to set the topic for the "entomology" channel.
     let first_topic_hash = cable.post_topic(&channel, &first_topic).await?;
-
-    /* THIRD REQUEST */
-
-    // Generate a novel request ID.
-    let (_req_id, req_id_bytes) = cable.new_req_id().await?;
-
-    // Create a channel state request.
-    let channel_state_req =
-        Message::channel_state_request(CIRCUIT_ID, req_id_bytes, TTL, channel.clone(), 0);
-    let req_bytes = channel_state_req.to_bytes()?;
-
-    // Write the request bytes to the stream.
-    stream.write_all(&req_bytes).await?;
 
     // Sleep briefly to allow time for the cable manager to respond.
     let five_millis = Duration::from_millis(5);
@@ -246,24 +219,13 @@ async fn channel_state_request_response() -> Result<(), Error> {
     let one_second = Duration::from_millis(1000);
     thread::sleep(one_second);
 
+    /* FOURTH RESPONSE */
+
     let second_topic =
         "Insect appreciation; please don't ask for identification assistance".to_string();
 
     // Publish a post to (re)set the topic for the "entomology" channel.
     let second_topic_hash = cable.post_topic(&channel, &second_topic).await?;
-
-    /* FOURTH REQUEST */
-
-    // Generate a novel request ID.
-    let (_req_id, req_id_bytes) = cable.new_req_id().await?;
-
-    // Create a channel state request.
-    let channel_state_req =
-        Message::channel_state_request(CIRCUIT_ID, req_id_bytes, TTL, channel.clone(), 0);
-    let req_bytes = channel_state_req.to_bytes()?;
-
-    // Write the request bytes to the stream.
-    stream.write_all(&req_bytes).await?;
 
     // Sleep briefly to allow time for the cable manager to respond.
     let five_millis = Duration::from_millis(5);
@@ -289,27 +251,12 @@ async fn channel_state_request_response() -> Result<(), Error> {
         }
     }
 
+    /* FIFTH REQUEST */
+
     // Delete the second (most recent) topic post for the "entomology" channel.
     let _delete_topic_hash = cable.post_delete(vec![second_topic_hash]).await?;
 
     // Sleep briefly to allow time for the deletion to occur.
-    let five_millis = Duration::from_millis(5);
-    thread::sleep(five_millis);
-
-    /* FOURTH REQUEST */
-
-    // Generate a novel request ID.
-    let (_req_id, req_id_bytes) = cable.new_req_id().await?;
-
-    // Create a channel state request.
-    let channel_state_req =
-        Message::channel_state_request(CIRCUIT_ID, req_id_bytes, TTL, channel.clone(), 0);
-    let req_bytes = channel_state_req.to_bytes()?;
-
-    // Write the request bytes to the stream.
-    stream.write_all(&req_bytes).await?;
-
-    // Sleep briefly to allow time for the cable manager to respond.
     let five_millis = Duration::from_millis(5);
     thread::sleep(five_millis);
 
