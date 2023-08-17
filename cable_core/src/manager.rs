@@ -96,6 +96,9 @@ pub struct CableManager<S: Store> {
     /// Hashes of posts which have been requested from remote peers by the
     /// local peer.
     requested_posts: Arc<RwLock<HashSet<Hash>>>,
+    /// Hashes of posts which remote peers have marked for deletion, or which
+    /// have been authored and deleted by the local peer.
+    deleted_posts: Arc<RwLock<HashSet<Hash>>>,
 }
 
 impl<S> CableManager<S>
@@ -114,6 +117,7 @@ where
             live_requests: Arc::new(RwLock::new(HashMap::new())),
             outbound_requests: Arc::new(RwLock::new(HashMap::new())),
             requested_posts: Arc::new(RwLock::new(HashSet::new())),
+            deleted_posts: Arc::new(RwLock::new(HashSet::new())),
         }
     }
 
@@ -175,6 +179,17 @@ where
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_secs();
+
+        // Add the hashes to the store of deleted posts.
+        //
+        // This helps to ensure these posts won't be re-added to the
+        // local store if they are ever returned by a remote peer.
+        let mut deleted_posts = self.deleted_posts.write().await;
+        deleted_posts.extend(&hashes);
+
+        // Drop the mutable borrow of `self` to allow the later
+        // call to `self.post()` (immutable borrow).
+        drop(deleted_posts);
 
         // Construct a new delete post.
         let post = Post::delete(public_key, links, timestamp, hashes);
@@ -591,6 +606,15 @@ where
 
                         let post_hash = post.hash()?;
 
+                        let deleted_posts = self.deleted_posts.read().await;
+                        // Check if a delete post has previously been
+                        // encountered which references this post hash.
+                        if deleted_posts.contains(&post_hash) {
+                            // Skip processing this post so that we do not add
+                            // it to the local store.
+                            continue;
+                        }
+
                         let mut requested_posts = self.requested_posts.write().await;
                         // Check if this post was previously requested.
                         if !requested_posts.contains(&post_hash) {
@@ -600,11 +624,6 @@ where
                         // Remove the post hash from the list of requested
                         // posts.
                         requested_posts.remove(&post_hash);
-
-                        // TODO: Hand the post over to an indexer.
-                        // The indexer will be responsible for matching on
-                        // the post type, extracting key info and indexing it
-                        // in the store.
 
                         self.store.insert_post(&post).await?;
                     }
