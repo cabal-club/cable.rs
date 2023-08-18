@@ -54,7 +54,7 @@ use cable::{
 };
 use desert::{FromBytes, ToBytes};
 use futures::{AsyncReadExt, AsyncWriteExt};
-use log::info;
+use log::{debug, info};
 
 use cable_core::{CableManager, MemoryStore};
 
@@ -113,12 +113,13 @@ async fn channel_state_request_response() -> Result<(), Error> {
     let mut stream = TcpStream::connect(addr).await?;
     info!("Connected to TCP server on {}", addr);
 
+    /* FIRST REQUEST */
+
     let channel = "entomology".to_string();
 
     // Publish a post to join the "entomology" channel.
     let join_post_hash = cable.post_join(&channel).await?;
-
-    /* FIRST REQUEST */
+    debug!("Published join post for {} channel", &channel);
 
     // Generate a novel request ID.
     let (_req_id, req_id_bytes) = cable.new_req_id().await?;
@@ -160,6 +161,7 @@ async fn channel_state_request_response() -> Result<(), Error> {
 
     // Publish a post to leave the "entomology" channel.
     let leave_post_hash = cable.post_leave(&channel).await?;
+    debug!("Published leave post for {} channel", &channel);
 
     // Sleep briefly to allow time for the cable manager to respond.
     let five_millis = Duration::from_millis(5);
@@ -189,6 +191,7 @@ async fn channel_state_request_response() -> Result<(), Error> {
 
     // Publish a post to set the topic for the "entomology" channel.
     let first_topic_hash = cable.post_topic(&channel, &first_topic).await?;
+    debug!("Published first topic post for {} channel", &channel);
 
     // Sleep briefly to allow time for the cable manager to respond.
     let five_millis = Duration::from_millis(5);
@@ -223,6 +226,7 @@ async fn channel_state_request_response() -> Result<(), Error> {
 
     let second_topic =
         "Insect appreciation; please don't ask for identification assistance".to_string();
+    debug!("Published second topic post for {} channel", &channel);
 
     // Publish a post to (re)set the topic for the "entomology" channel.
     let second_topic_hash = cable.post_topic(&channel, &second_topic).await?;
@@ -251,12 +255,22 @@ async fn channel_state_request_response() -> Result<(), Error> {
         }
     }
 
-    /* FIFTH REQUEST */
+    /* FIFTH RESPONSE */
+
+    // TODO: Posting a deletion of a channel state-related post does not
+    // currently result in the latest hashes being automatically sent.
+    // Therefore, this test will hang (no bytes are returned from the stream).
+    //
+    // This is a known problem and a solution is being worked on.
 
     // Delete the second (most recent) topic post for the "entomology" channel.
     let _delete_topic_hash = cable.post_delete(vec![second_topic_hash]).await?;
+    debug!(
+        "Published delete post for second topic post to {} channel",
+        &channel
+    );
 
-    // Sleep briefly to allow time for the deletion to occur.
+    // Sleep briefly to allow time for the cable manager to respond.
     let five_millis = Duration::from_millis(5);
     thread::sleep(five_millis);
 
