@@ -120,6 +120,7 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
         hash: &Hash,
     ) -> Result<(), Error>;
 
+    // TODO: Consider returning a `HashStream` instead of a vector.
     /// Retrieve all of the latest `post/join` or `post/leave` post hashes
     /// for the given channel.
     async fn get_channel_membership_hashes<'a>(
@@ -796,7 +797,9 @@ impl Store for MemoryStore {
             .flat_map(|(_time, posts)| posts.iter().map(|(_post, hash)| Ok(*hash)))
             .collect::<Vec<Result<Hash, Error>>>();
 
-        Ok(Box::new(stream::from_iter(hashes.into_iter())))
+        let hash_stream = Box::new(stream::from_iter(hashes.into_iter()));
+
+        Ok(hash_stream)
     }
 
     async fn get_post_payloads(&mut self, hashes: &[Hash]) -> Result<Vec<Payload>, Error> {
