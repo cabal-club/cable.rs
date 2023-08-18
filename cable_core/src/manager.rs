@@ -38,21 +38,32 @@ pub type PeerId = usize;
 
 /// A `HashMap` of peer requests with a key of peer ID and a value of a `Vec`
 /// of request ID and `LiveRequest`.
-pub type PeerRequestMap = HashMap<PeerId, Vec<(ReqId, LiveRequest)>>;
+pub type PeerRequestMap = HashMap<PeerId, Vec<LiveRequest>>;
 
 /// Inbound requests for which the keep-alive option has been selected.
 ///
 /// This helps us to respond to live requests with new hashes as they become
 /// known. The hashes must satisfy the given request parameters, either channel
 /// name or channel options, in order to be sent.
+#[derive(Debug, PartialEq)]
 pub enum LiveRequest {
-    /// A channel state request with specified channel.
-    ChannelState(Channel),
-    /// A channel time range request with specified channel options.
-    ChannelTimeRange(ChannelOptions),
+    /// A channel state request with specified ID and channel.
+    ChannelState(ReqId, Channel),
+    /// A channel time range request with specified ID and channel options.
+    ChannelTimeRange(ReqId, ChannelOptions),
+}
+
+impl LiveRequest {
+    fn req_id(&self) -> &ReqId {
+        match self {
+            LiveRequest::ChannelState(req_id, _channel) => req_id,
+            LiveRequest::ChannelTimeRange(req_id, _channel_opts) => req_id,
+        }
+    }
 }
 
 /// The origin of a request.
+#[derive(Debug)]
 enum RequestOrigin {
     /// Local request.
     Local,
@@ -121,6 +132,22 @@ where
         }
     }
 
+    /// Query if the request defined by the given peer ID and request ID is an
+    /// active live request.
+    async fn is_live_request(&mut self, peer_id: &PeerId, req_id: &ReqId) -> bool {
+        let live_requests = self.live_requests.read().await;
+        // Check if there are active live requests for the given peer ID.
+        if let Some(peer_requests) = live_requests.get(peer_id) {
+            // Iterate over the peer requests and report on the presence of the
+            // given request ID.
+            peer_requests
+                .iter()
+                .any(|live_request| live_request.req_id() == req_id)
+        } else {
+            false
+        }
+    }
+
     /// Remove the live request defined by the given peer ID and request ID.
     async fn remove_live_request(&mut self, peer_id: &PeerId, req_id: &ReqId) -> Result<(), Error> {
         // Remove the request from the map of live requests.
@@ -129,7 +156,7 @@ where
             // Iterate over the peer requests and retain only the
             // requests for which the ID does not match the given
             // request ID.
-            peer_requests.retain(|(id, _live_request)| id != req_id);
+            peer_requests.retain(|live_request| live_request.req_id() != req_id);
         }
 
         Ok(())
@@ -261,6 +288,12 @@ where
         // Insert the post into the local store.
         let hash = self.store.insert_post(&post).await?;
 
+        // TODO: Delete posts do not include a channel.
+        // This means that `send_post_hashes()` will not result in the latest
+        // channel state hashes being automatically sent for any live requests
+        // after a deletion.
+        //
+        // How to solve this?
         let channel = post.get_channel();
 
         // Send post hashes to all peers for whom we hold inbound requests.
@@ -276,16 +309,16 @@ where
     /// of 0) or a ChannelState request (`future` of 1).
     async fn send_post_hashes(&mut self, channel: Option<&Channel>) -> Result<(), Error> {
         // Iterate over all live peer requests.
-        for (peer_id, reqs) in self.live_requests.read().await.iter() {
+        for (peer_id, live_requests) in self.live_requests.read().await.iter() {
             // Iterate over peer requests.
-            for (req_id, live_request) in reqs {
+            for live_request in live_requests {
                 if let Some(channel) = channel {
                     // Create an empty vector to store post hashes to be sent
                     // in response.
                     let mut hashes = vec![];
 
                     match live_request {
-                        LiveRequest::ChannelState(req_channel) => {
+                        LiveRequest::ChannelState(req_id, req_channel) => {
                             // Only send hashes if the channel of the post which invoked
                             // the call to `send_post_hashes()` matches the channel of
                             // the peer request.
@@ -309,15 +342,15 @@ where
                                 self.send(*peer_id, &response).await?;
                             }
                         }
-                        LiveRequest::ChannelTimeRange(opts) => {
+                        LiveRequest::ChannelTimeRange(req_id, channel_opts) => {
                             // Only send hashes if the channel of the post which invoked
                             // the call to `send_post_hashes()` matches the channel of
                             // the peer request.
-                            if &opts.channel == channel {
-                                let limit = opts.limit.min(4096);
+                            if &channel_opts.channel == channel {
+                                let limit = channel_opts.limit.min(4096);
 
                                 // Get all post hashes matching the request parameters.
-                                let mut stream = self.store.get_post_hashes(opts).await?;
+                                let mut stream = self.store.get_post_hashes(channel_opts).await?;
                                 while let Some(result) = stream.next().await {
                                     hashes.push(result?);
                                     // Break once the request limit has been reached.
@@ -380,10 +413,16 @@ where
             req_id,
         } = msg.header;
 
-        // Ignore this message if the request ID matches one we already
-        // know about.
-        if self.handled_requests.read().await.contains(&req_id) {
-            debug!("Dropping message from handler; request ID has been seen before");
+        // Ignore this message if the request ID has previously been handled
+        // and it is not an active live request or outbound request.
+        if self.handled_requests.read().await.contains(&req_id)
+            && !self.is_live_request(&peer_id, &req_id).await
+            && !self.outbound_requests.read().await.contains_key(&req_id)
+        {
+            debug!(
+                "Dropping message from handler; request ID has been seen before: {}",
+                msg.header
+            );
 
             return Ok(());
         }
@@ -434,12 +473,12 @@ where
                         self.decrement_ttl_and_write_to_outbound(req_id, msg).await;
                     }
 
-                    let opts = ChannelOptions::new(channel, *time_start, *time_end, *limit);
+                    let channel_opts = ChannelOptions::new(channel, *time_start, *time_end, *limit);
                     let n_limit = (*limit).min(4096);
 
                     let mut hashes = vec![];
                     // Create a stream of post hashes matching the given criteria.
-                    let mut stream = self.store.get_post_hashes(&opts).await?;
+                    let mut stream = self.store.get_post_hashes(&channel_opts).await?;
                     // Iterate over the hashes in the stream.
                     while let Some(result) = stream.next().await {
                         hashes.push(result?);
@@ -458,13 +497,13 @@ where
                     // the end time has been set to 0 (i.e. keep this request
                     // alive and send new messages as they become available).
                     if *time_end == 0 {
-                        let live_request = LiveRequest::ChannelTimeRange(opts);
+                        let live_request = LiveRequest::ChannelTimeRange(req_id, channel_opts);
 
                         let mut live_requests = self.live_requests.write().await;
                         if let Some(peer_requests) = live_requests.get_mut(&peer_id) {
-                            peer_requests.push((req_id, live_request));
+                            peer_requests.push(live_request);
                         } else {
-                            live_requests.insert(peer_id, vec![(req_id, live_request)]);
+                            live_requests.insert(peer_id, vec![live_request]);
                         }
                     }
 
@@ -497,13 +536,13 @@ where
                     // the future field has been set to 1 (i.e. keep this request
                     // alive and send new messages as they become available).
                     if *future == 1 {
-                        let live_request = LiveRequest::ChannelState(channel.to_string());
+                        let live_request = LiveRequest::ChannelState(req_id, channel.to_string());
 
                         let mut live_requests = self.live_requests.write().await;
                         if let Some(peer_requests) = live_requests.get_mut(&peer_id) {
-                            peer_requests.push((req_id, live_request));
+                            peer_requests.push(live_request);
                         } else {
-                            live_requests.insert(peer_id, vec![(req_id, live_request)]);
+                            live_requests.insert(peer_id, vec![live_request]);
                         }
                     }
 
