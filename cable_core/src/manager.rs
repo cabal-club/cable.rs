@@ -750,8 +750,7 @@ where
     /// requests originating locally and matching the given channel name.
     /// Broadcast the cancel request(s) to all peers.
     pub async fn close_channel(&self, channel: &String) -> Result<(), Error> {
-        debug!("Closing channel: {}", channel);
-
+        debug!("Closing channel {}", channel);
         let close_channel = channel;
 
         let mut outbound_requests = self.outbound_requests.write().await;
@@ -776,17 +775,8 @@ where
 
         for channel_req_id in channel_req_ids {
             let (_req_id, req_id_bytes) = self.new_req_id().await?;
-
             let request = Message::cancel_request(NO_CIRCUIT, req_id_bytes, TTL, channel_req_id);
-
-            // TODO: Do we really want to store a cancel request?
-            self.outbound_requests
-                .write()
-                .await
-                .insert(req_id_bytes, (RequestOrigin::Local, request.clone()));
-
             self.broadcast(&request).await?;
-
             outbound_requests.remove(&channel_req_id);
         }
 
