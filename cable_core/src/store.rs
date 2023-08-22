@@ -105,6 +105,13 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
         public_key: &PublicKey,
     ) -> Result<(), Error>;
 
+    /// Query whether the given public key is a member of the given channel.
+    async fn is_channel_member<'a>(
+        &'a mut self,
+        channel: &Channel,
+        public_key: &PublicKey,
+    ) -> Result<bool, Error>;
+
     /// Retrieve all members of the given channel.
     async fn get_channel_members<'a>(
         &'a mut self,
@@ -353,6 +360,16 @@ impl Store for MemoryStore {
             .unwrap_or(Vec::new());
 
         Ok(channel_members)
+    }
+
+    async fn is_channel_member(
+        &mut self,
+        channel: &Channel,
+        public_key: &PublicKey,
+    ) -> Result<bool, Error> {
+        let channel_members = self.get_channel_members(channel).await?;
+
+        Ok(channel_members.contains(public_key))
     }
 
     async fn update_channel_membership_hashes(
