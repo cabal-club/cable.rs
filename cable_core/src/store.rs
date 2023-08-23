@@ -639,20 +639,39 @@ impl Store for MemoryStore {
 
                 self.update_channel_membership_hashes(channel, public_key, &hash)
                     .await?;
-
                 self.insert_channel_member(channel, public_key).await?;
+
+                // Insert the binary payload of the post into the
+                // `HashMap` of post data, indexed by the hash.
+                self.post_payloads
+                    .write()
+                    .await
+                    .insert(hash, post.to_bytes()?);
             }
             PostBody::Leave { channel } => {
                 let public_key = &post.get_public_key();
 
                 self.update_channel_membership_hashes(channel, public_key, &hash)
                     .await?;
-
                 self.remove_channel_member(channel, public_key).await?;
+
+                // Insert the binary payload of the post into the
+                // `HashMap` of post data, indexed by the hash.
+                self.post_payloads
+                    .write()
+                    .await
+                    .insert(hash, post.to_bytes()?);
             }
             PostBody::Topic { channel, topic } => {
                 self.insert_channel_topic(channel, topic, timestamp, &hash)
                     .await?;
+
+                // Insert the binary payload of the post into the
+                // `HashMap` of post data, indexed by the hash.
+                self.post_payloads
+                    .write()
+                    .await
+                    .insert(hash, post.to_bytes()?);
             }
             PostBody::Delete { hashes } => {
                 // Places / stores for checking and deletion:
@@ -661,6 +680,13 @@ impl Store for MemoryStore {
                 for hash in hashes {
                     self.delete_post(hash).await?
                 }
+
+                // Insert the binary payload of the post into the
+                // `HashMap` of post data, indexed by the hash.
+                self.post_payloads
+                    .write()
+                    .await
+                    .insert(hash, post.to_bytes()?);
             }
             _ => {}
         }
@@ -832,10 +858,12 @@ impl Store for MemoryStore {
     async fn want(&mut self, hashes: &[Hash]) -> Result<Vec<Hash>, Error> {
         let post_payloads = self.post_payloads.read().await;
 
-        Ok(hashes
+        let wanted_hashes = hashes
             .iter()
             .filter(|hash| !post_payloads.contains_key(&(*hash).clone()))
             .cloned()
-            .collect())
+            .collect();
+
+        Ok(wanted_hashes)
     }
 }
