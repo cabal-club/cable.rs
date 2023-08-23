@@ -31,7 +31,9 @@ pub struct LiveStream {
 impl LiveStream {
     /// Create a new `LiveStream` with the given channel options and streams.
     pub fn new(id: usize, options: ChannelOptions, live_streams: Arc<RwLock<Vec<Self>>>) -> Self {
-        let (sender, receiver) = channel::bounded(options.limit as usize);
+        let limit = options.limit as usize;
+
+        let (sender, receiver) = channel::bounded(limit);
 
         Self {
             id,
