@@ -719,28 +719,40 @@ where
         Ok(peer_id)
     }
 
-    /// Create a channel time range request matching the given channel
-    /// parameters and broadcast it to all peers, listening for responses.
+    /// Create a channel time range request and a channel state request matching
+    /// the given channel parameters and broadcast them to all peers, listening
+    /// for responses.
     pub async fn open_channel(
         &mut self,
         channel_opts: &ChannelOptions,
     ) -> Result<PostStream<'_>, Error> {
         debug!("Opening {}", channel_opts);
 
-        let (_req_id, req_id_bytes) = self.new_req_id().await?;
+        let channel = channel_opts.channel.to_owned();
+        let future = 1;
 
+        // Create and broadcast a channel time range request.
+        let (_req_id, req_id_bytes) = self.new_req_id().await?;
         let request = Message::channel_time_range_request(
             NO_CIRCUIT,
             req_id_bytes,
             TTL,
             channel_opts.to_owned(),
         );
-
         self.outbound_requests
             .write()
             .await
             .insert(req_id_bytes, (RequestOrigin::Local, request.clone()));
+        self.broadcast(&request).await?;
 
+        // Create and broadcast a channel state request.
+        let (_req_id, req_id_bytes) = self.new_req_id().await?;
+        let request =
+            Message::channel_state_request(NO_CIRCUIT, req_id_bytes, TTL, channel, future);
+        self.outbound_requests
+            .write()
+            .await
+            .insert(req_id_bytes, (RequestOrigin::Local, request.clone()));
         self.broadcast(&request).await?;
 
         self.store.get_posts_live(channel_opts).await
