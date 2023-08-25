@@ -14,7 +14,7 @@ use async_std::{
 };
 use cable::{
     post::{Post, PostBody},
-    Channel, ChannelOptions, Error, Hash, Payload, Timestamp, Topic,
+    Channel, ChannelOptions, Error, Hash, Nickname, Payload, Timestamp, Topic,
 };
 use desert::ToBytes;
 use sodiumoxide::crypto;
@@ -174,6 +174,10 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
     /// criteria are satisfied.
     async fn send_post_to_live_streams(&mut self, post: &Post, channel: &Channel);
 
+    /// Insert the given nickname into the store using the key defined by the
+    /// given public key.
+    async fn insert_name(&mut self, public_key: &PublicKey, name: &Nickname);
+
     /// Insert the given post into the store and return the hash.
     async fn insert_post(&mut self, post: &Post) -> Result<Hash, Error>;
 
@@ -231,7 +235,7 @@ pub struct MemoryStore {
     ///
     /// This map is updated according to received / published `post/join`
     /// and `post/leave` posts.
-    channel_members: Arc<RwLock<HashMap<Channel, Vec<[u8; 32]>>>>,
+    channel_members: Arc<RwLock<HashMap<Channel, Vec<PublicKey>>>>,
     /// The hash of the latest `post/join` or `post/leave` post for each known
     /// peer, indexed by channel (the outer key) and public key (the first
     /// element of the tuple).
@@ -239,6 +243,8 @@ pub struct MemoryStore {
     /// The topic, timestamp and hash of the latest `post/topic` post for each
     /// known channel, indexed by channel.
     channel_topics: Arc<RwLock<TopicHashMap>>,
+    /// The nickname of each known peer, indexed by public key.
+    peer_names: Arc<RwLock<HashMap<PublicKey, Nickname>>>,
     /// All posts and hashes in the store divided according to channel (the
     /// outer key) and indexed by timestamp (the inner key).
     posts: Arc<RwLock<PostMap>>,
@@ -272,6 +278,7 @@ impl Default for MemoryStore {
             channel_members: Arc::new(RwLock::new(HashMap::new())),
             channel_membership: Arc::new(RwLock::new(HashMap::new())),
             channel_topics: Arc::new(RwLock::new(HashMap::new())),
+            peer_names: Arc::new(RwLock::new(HashMap::new())),
             posts: Arc::new(RwLock::new(HashMap::new())),
             //post_hashes: Arc::new(RwLock::new(HashMap::new())),
             post_payloads: Arc::new(RwLock::new(HashMap::new())),
@@ -593,6 +600,11 @@ impl Store for MemoryStore {
             // using the channel name as the key.
             posts.insert(channel.to_owned(), post_map);
         }
+    }
+
+    async fn insert_name(&mut self, public_key: &PublicKey, name: &Nickname) {
+        let mut peer_names = self.peer_names.write().await;
+        peer_names.insert(*public_key, name.to_owned());
     }
 
     async fn insert_post(&mut self, post: &Post) -> Result<Hash, Error> {
