@@ -663,6 +663,38 @@ impl Store for MemoryStore {
                     .insert(hash, post.to_bytes()?);
             }
             PostBody::Topic { channel, topic } => {
+                // TODO: Deduplicate shared code.
+                //
+                // Open the post store for writing.
+                let mut posts = self.posts.write().await;
+
+                // Retrieve the stored posts matching the given channel.
+                if let Some(post_map) = posts.get_mut(channel) {
+                    // Retrieve the stored posts matching the given
+                    // timestamp.
+                    if let Some(posts) = post_map.get_mut(timestamp) {
+                        // Add the post to the vector of posts indexed
+                        // by the given timestamp.
+                        posts.push((post.clone(), hash));
+                    } else {
+                        // Insert the post and post hash (as a `Vec` of tuple)
+                        // into the `BTreeMap`, using the timestamp as the key.
+                        post_map.insert(*timestamp, vec![(post.clone(), hash)]);
+                    }
+                } else {
+                    // No posts have previously been stored for the
+                    // given channel.
+
+                    let mut post_map = BTreeMap::new();
+                    // Insert the post (as a `Vec`) into the `BTreeMap`,
+                    // using the timestamp as the key.
+                    post_map.insert(*timestamp, vec![(post.clone(), hash)]);
+                    // Insert the `BTreeMap` into the posts `HashMap`,
+                    // using the channel name as the key.
+                    posts.insert(channel.to_owned(), post_map);
+                }
+                drop(posts);
+
                 self.insert_channel_topic(channel, topic, timestamp, &hash)
                     .await?;
 
@@ -672,6 +704,21 @@ impl Store for MemoryStore {
                     .write()
                     .await
                     .insert(hash, post.to_bytes()?);
+
+                // TODO: Reduce repetition. Separate code into functions for
+                // all post types.
+                //
+                // If we have open live streams matching the channel to which
+                // this post was published...
+                if let Some(senders) = self.live_streams.read().await.get(channel) {
+                    for stream in senders.write().await.iter_mut() {
+                        if stream.matches(post) {
+                            // Send the post to each stream for which the channel
+                            // option criteria are satisfied.
+                            stream.send(post.clone()).await;
+                        }
+                    }
+                }
             }
             PostBody::Delete { hashes } => {
                 // Places / stores for checking and deletion:
@@ -761,7 +808,9 @@ impl Store for MemoryStore {
             .flat_map(|(_time, posts)| posts.iter().map(|(post, _hash)| Ok(post.clone())))
             .collect::<Vec<Result<Post, Error>>>();
 
-        Ok(Box::new(stream::from_iter(posts.into_iter())))
+        let post_stream = Box::new(stream::from_iter(posts.into_iter()));
+
+        Ok(post_stream)
     }
 
     async fn get_posts_live(&mut self, opts: &ChannelOptions) -> Result<PostStream, Error> {
@@ -811,9 +860,12 @@ impl Store for MemoryStore {
             }
         };
 
+        // Retrieve all stored posts matching the channel options.
         let post_stream = self.get_posts(opts).await?;
+        // Merge the existing post stream with the live post stream.
+        let live_post_stream = Box::new(post_stream.merge(live_stream));
 
-        Ok(Box::new(post_stream.merge(live_stream)))
+        Ok(live_post_stream)
     }
 
     async fn get_post_hashes(&mut self, opts: &ChannelOptions) -> Result<HashStream, Error> {
