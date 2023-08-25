@@ -186,6 +186,19 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
     /// removal of the post.
     async fn delete_post(&mut self, hash: &Hash) -> Result<(), Error>;
 
+    /// Update the posts store by inserting the given post.
+    ///
+    /// This method is more specific than `insert_post()`. It updates only
+    /// the `posts` store, whereas `insert_post()` is responsible for updating
+    /// multiple stores based on the post type.
+    async fn update_posts(
+        &mut self,
+        post: &Post,
+        channel: &Channel,
+        timestamp: &Timestamp,
+        hash: Hash,
+    );
+
     /// Retrieve all posts matching the parameters defined by the given
     /// `ChannelOptions`.
     async fn get_posts<'a>(&'a mut self, opts: &ChannelOptions) -> Result<PostStream, Error>;
@@ -545,6 +558,43 @@ impl Store for MemoryStore {
         }
     }
 
+    async fn update_posts(
+        &mut self,
+        post: &Post,
+        channel: &Channel,
+        timestamp: &Timestamp,
+        hash: Hash,
+    ) {
+        // Open the post store for writing.
+        let mut posts = self.posts.write().await;
+
+        // Retrieve the stored posts matching the given channel.
+        if let Some(post_map) = posts.get_mut(channel) {
+            // Retrieve the stored posts matching the given
+            // timestamp.
+            if let Some(posts) = post_map.get_mut(timestamp) {
+                // Add the post to the vector of posts indexed
+                // by the given timestamp.
+                posts.push((post.clone(), hash));
+            } else {
+                // Insert the post and post hash (as a `Vec` of tuple)
+                // into the `BTreeMap`, using the timestamp as the key.
+                post_map.insert(*timestamp, vec![(post.clone(), hash)]);
+            }
+        } else {
+            // No posts have previously been stored for the
+            // given channel.
+
+            let mut post_map = BTreeMap::new();
+            // Insert the post (as a `Vec`) into the `BTreeMap`,
+            // using the timestamp as the key.
+            post_map.insert(*timestamp, vec![(post.clone(), hash)]);
+            // Insert the `BTreeMap` into the posts `HashMap`,
+            // using the channel name as the key.
+            posts.insert(channel.to_owned(), post_map);
+        }
+    }
+
     async fn insert_post(&mut self, post: &Post) -> Result<Hash, Error> {
         let timestamp = &post.get_timestamp();
 
@@ -554,35 +604,8 @@ impl Store for MemoryStore {
         match &post.body {
             // TODO: Include matching arms for other post types.
             PostBody::Text { channel, text: _ } => {
-                // Open the post store for writing.
-                let mut posts = self.posts.write().await;
-
-                // Retrieve the stored posts matching the given channel.
-                if let Some(post_map) = posts.get_mut(channel) {
-                    // Retrieve the stored posts matching the given
-                    // timestamp.
-                    if let Some(posts) = post_map.get_mut(timestamp) {
-                        // Add the post to the vector of posts indexed
-                        // by the given timestamp.
-                        posts.push((post.clone(), hash));
-                    } else {
-                        // Insert the post and post hash (as a `Vec` of tuple)
-                        // into the `BTreeMap`, using the timestamp as the key.
-                        post_map.insert(*timestamp, vec![(post.clone(), hash)]);
-                    }
-                } else {
-                    // No posts have previously been stored for the
-                    // given channel.
-
-                    let mut post_map = BTreeMap::new();
-                    // Insert the post (as a `Vec`) into the `BTreeMap`,
-                    // using the timestamp as the key.
-                    post_map.insert(*timestamp, vec![(post.clone(), hash)]);
-                    // Insert the `BTreeMap` into the posts `HashMap`,
-                    // using the channel name as the key.
-                    posts.insert(channel.to_owned(), post_map);
-                }
-                drop(posts);
+                // Insert the post into the `posts` store.
+                self.update_posts(post, channel, timestamp, hash).await;
 
                 // Insert the binary payload of the post into the
                 // `HashMap` of post data, indexed by the hash.
@@ -590,52 +613,6 @@ impl Store for MemoryStore {
                     .write()
                     .await
                     .insert(hash, post.to_bytes()?);
-
-                /*
-                // Open the post hashes store for writing.
-                let mut post_hashes = self.post_hashes.write().await;
-
-                // Retrieve the stored post hashes matching the given
-                // channel.
-                if let Some(hash_map) = post_hashes.get_mut(channel) {
-                    // Retrieve the stored post hashes matching the given
-                    // timestamp.
-                    if let Some(hashes) = hash_map.get_mut(timestamp) {
-                        // Add the hash to the vector of hashes indexed by
-                        // the given timestamp.
-                        hashes.push(hash);
-                    } else {
-                        // Insert the hash (as a `Vec`) into the `BTreeMap`,
-                        // using the timestampas the key.
-                        hash_map.insert(*timestamp, vec![hash]);
-                    }
-
-                    // Insert the binary payload of the post into the
-                    // `HashMap` of post data, indexed by the hash.
-                    self.post_payloads
-                        .write()
-                        .await
-                        .insert(hash, post.to_bytes()?);
-                } else {
-                    // No hashes have previously been stored for the
-                    // given channel.
-
-                    let mut hash_map = BTreeMap::new();
-                    // Insert the hash (as a `Vec`) into the `BTreeMap`,
-                    // using the timestamp as the key.
-                    hash_map.insert(*timestamp, vec![hash]);
-                    // Insert the `BTreeMap` into the post hashes `HashMap`,
-                    // using the channel name as the key.
-                    post_hashes.insert(channel.to_owned(), hash_map);
-
-                    // Insert the binary payload of the post into the
-                    // `HashMap` of post data, indexed by the hash.
-                    self.post_payloads
-                        .write()
-                        .await
-                        .insert(hash, post.to_bytes()?);
-                }
-                */
 
                 self.send_post_to_live_streams(post, channel).await;
             }
@@ -668,37 +645,8 @@ impl Store for MemoryStore {
                     .insert(hash, post.to_bytes()?);
             }
             PostBody::Topic { channel, topic } => {
-                // TODO: Deduplicate shared code.
-                //
-                // Open the post store for writing.
-                let mut posts = self.posts.write().await;
-
-                // Retrieve the stored posts matching the given channel.
-                if let Some(post_map) = posts.get_mut(channel) {
-                    // Retrieve the stored posts matching the given
-                    // timestamp.
-                    if let Some(posts) = post_map.get_mut(timestamp) {
-                        // Add the post to the vector of posts indexed
-                        // by the given timestamp.
-                        posts.push((post.clone(), hash));
-                    } else {
-                        // Insert the post and post hash (as a `Vec` of tuple)
-                        // into the `BTreeMap`, using the timestamp as the key.
-                        post_map.insert(*timestamp, vec![(post.clone(), hash)]);
-                    }
-                } else {
-                    // No posts have previously been stored for the
-                    // given channel.
-
-                    let mut post_map = BTreeMap::new();
-                    // Insert the post (as a `Vec`) into the `BTreeMap`,
-                    // using the timestamp as the key.
-                    post_map.insert(*timestamp, vec![(post.clone(), hash)]);
-                    // Insert the `BTreeMap` into the posts `HashMap`,
-                    // using the channel name as the key.
-                    posts.insert(channel.to_owned(), post_map);
-                }
-                drop(posts);
+                // Insert the post into the `posts` store.
+                self.update_posts(post, channel, timestamp, hash).await;
 
                 self.insert_channel_topic(channel, topic, timestamp, &hash)
                     .await?;
