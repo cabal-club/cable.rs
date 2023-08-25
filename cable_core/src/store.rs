@@ -170,6 +170,10 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
     async fn get_latest_join_or_leave_post_hashes<'a>(&'a mut self) -> Result<Vec<Hash>, Error>;
     */
 
+    /// Send the given post to each live stream for which the channel option
+    /// criteria are satisfied.
+    async fn send_post_to_live_streams(&mut self, post: &Post, channel: &Channel);
+
     /// Insert the given post into the store and return the hash.
     async fn insert_post(&mut self, post: &Post) -> Result<Hash, Error>;
 
@@ -531,6 +535,16 @@ impl Store for MemoryStore {
     }
     */
 
+    async fn send_post_to_live_streams(&mut self, post: &Post, channel: &Channel) {
+        if let Some(senders) = self.live_streams.read().await.get(channel) {
+            for stream in senders.write().await.iter_mut() {
+                if stream.matches(post) {
+                    stream.send(post.clone()).await;
+                }
+            }
+        }
+    }
+
     async fn insert_post(&mut self, post: &Post) -> Result<Hash, Error> {
         let timestamp = &post.get_timestamp();
 
@@ -568,6 +582,7 @@ impl Store for MemoryStore {
                     // using the channel name as the key.
                     posts.insert(channel.to_owned(), post_map);
                 }
+                drop(posts);
 
                 // Insert the binary payload of the post into the
                 // `HashMap` of post data, indexed by the hash.
@@ -622,17 +637,7 @@ impl Store for MemoryStore {
                 }
                 */
 
-                // If we have open live streams matching the channel to which
-                // this post was published...
-                if let Some(senders) = self.live_streams.read().await.get(channel) {
-                    for stream in senders.write().await.iter_mut() {
-                        if stream.matches(post) {
-                            // Send the post to each stream for which the channel
-                            // option criteria are satisfied.
-                            stream.send(post.clone()).await;
-                        }
-                    }
-                }
+                self.send_post_to_live_streams(post, channel).await;
             }
             PostBody::Join { channel } => {
                 let public_key = &post.get_public_key();
@@ -705,20 +710,7 @@ impl Store for MemoryStore {
                     .await
                     .insert(hash, post.to_bytes()?);
 
-                // TODO: Reduce repetition. Separate code into functions for
-                // all post types.
-                //
-                // If we have open live streams matching the channel to which
-                // this post was published...
-                if let Some(senders) = self.live_streams.read().await.get(channel) {
-                    for stream in senders.write().await.iter_mut() {
-                        if stream.matches(post) {
-                            // Send the post to each stream for which the channel
-                            // option criteria are satisfied.
-                            stream.send(post.clone()).await;
-                        }
-                    }
-                }
+                self.send_post_to_live_streams(post, channel).await;
             }
             PostBody::Delete { hashes } => {
                 // Places / stores for checking and deletion:
