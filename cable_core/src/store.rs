@@ -178,6 +178,9 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
     /// given public key.
     async fn insert_name(&mut self, public_key: &PublicKey, name: &Nickname);
 
+    /// Retrieve the nickname associated with the given public key.
+    async fn get_name(&mut self, public_key: &PublicKey) -> Option<Nickname>;
+
     /// Insert the given post into the store and return the hash.
     async fn insert_post(&mut self, post: &Post) -> Result<Hash, Error>;
 
@@ -509,6 +512,7 @@ impl Store for MemoryStore {
         Ok(())
     }
 
+    // TODO: Remove unnecessary `Result` return type.
     async fn get_channel_topic_and_hash<'a>(
         &'a mut self,
         channel: &Channel,
@@ -605,6 +609,10 @@ impl Store for MemoryStore {
     async fn insert_name(&mut self, public_key: &PublicKey, name: &Nickname) {
         let mut peer_names = self.peer_names.write().await;
         peer_names.insert(*public_key, name.to_owned());
+    }
+
+    async fn get_name(&mut self, public_key: &PublicKey) -> Option<Nickname> {
+        self.peer_names.read().await.get(public_key).cloned()
     }
 
     async fn insert_post(&mut self, post: &Post) -> Result<Hash, Error> {
