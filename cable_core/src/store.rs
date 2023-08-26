@@ -27,10 +27,15 @@ pub type PublicKey = [u8; 32];
 /// A public-private keypair.
 pub type Keypair = ([u8; 32], [u8; 64]);
 
-/// A `HashMap` of posts with a key of channel name and a value of a `BTreeMap`.
-/// The `BTreeMap` has a key of timestamp and value of a `Vec` of tuple with
-/// post and post hash.
-pub type PostMap = HashMap<Channel, BTreeMap<u64, Vec<(Post, Hash)>>>;
+/// A `HashMap` of posts with a key of an option-enclosed channel name and a
+/// value of a `BTreeMap`. The `BTreeMap` has a key of timestamp and value of
+/// a `Vec` of tuple with post and post hash.
+///
+/// The key is an `Option` to allow for storage and retrieved of post types
+/// which do not have an associated channel; these posts are stored with a
+/// key of `None`.
+//pub type PostMap = HashMap<Channel, BTreeMap<u64, Vec<(Post, Hash)>>>;
+pub type PostMap = HashMap<Option<Channel>, BTreeMap<u64, Vec<(Post, Hash)>>>;
 
 /*
 /// A `HashMap` of post hashes with a key of channel name and a value of a
@@ -309,7 +314,7 @@ impl Store for MemoryStore {
         let posts_map = self.posts.read().await;
 
         // Get the BTree associated with the given channel.
-        if let Some(posts_btree) = posts_map.get(channel) {
+        if let Some(posts_btree) = posts_map.get(&Some(channel.to_owned())) {
             // Return the most recently added hash(es).
             posts_btree.last_key_value().map(|(_, post_vec)| {
                 post_vec
@@ -580,7 +585,7 @@ impl Store for MemoryStore {
         let mut posts = self.posts.write().await;
 
         // Retrieve the stored posts matching the given channel.
-        if let Some(post_map) = posts.get_mut(channel) {
+        if let Some(post_map) = posts.get_mut(&Some(channel.to_owned())) {
             // Retrieve the stored posts matching the given
             // timestamp.
             if let Some(posts) = post_map.get_mut(timestamp) {
@@ -602,7 +607,7 @@ impl Store for MemoryStore {
             post_map.insert(*timestamp, vec![(post.clone(), hash)]);
             // Insert the `BTreeMap` into the posts `HashMap`,
             // using the channel name as the key.
-            posts.insert(channel.to_owned(), post_map);
+            posts.insert(Some(channel.to_owned()), post_map);
         }
     }
 
@@ -695,6 +700,9 @@ impl Store for MemoryStore {
                     .await
                     .insert(hash, post.to_bytes()?);
             }
+            PostBody::Info { info } => {
+                todo!()
+            }
             _ => {}
         }
 
@@ -758,7 +766,7 @@ impl Store for MemoryStore {
             .posts
             .write()
             .await
-            .get(&opts.channel)
+            .get(&Some(opts.channel.to_owned()))
             // Return an empty map if no posts are found matching the given
             // channel.
             .unwrap_or(&self.empty_post_bt)
@@ -837,7 +845,7 @@ impl Store for MemoryStore {
             .posts
             .read()
             .await
-            .get(&opts.channel)
+            .get(&Some(opts.channel.to_owned()))
             // Return only the hashes for which the key (timestamp: `x`)
             // matches the given range (provided via `opts`).
             .map(|x| match (start, end) {
