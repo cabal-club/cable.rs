@@ -13,32 +13,28 @@
 //!
 //! 2) Send a channel state request for the "entomology" channel with `future`
 //! set to 1 (requesting ongoing hash responses for each change of the channel
-//! state). Ensure that
-//! a single hash is returned and that it matches the hash of the join post.
+//! state). Ensure that a single hash is returned and that it matches the hash
+//! of the join post.
 //!
-//! 3) Publish a leave post to the "entomology" channel.
+//! 3) Publish a topic post to the "entomology" channel.
 //!
-//! 4) Ensure that a single hash is returned and that it matches the hash of
-//! the leave post.
-//!
-//! 5) Publish a topic post to the "entomology" channel.
-//!
-//! 6) Ensure that two hashes are returned: one matcing the hash of the leave
+//! 4) Ensure that two hashes are returned: one matching the hash of the join
 //! post and one matching the hash of the topic post.
 //!
-//! 7) Publish a second topic post to the "entomology" channel.
+//! 5) Publish a second topic post to the "entomology" channel.
 //!
-//! 8) Ensure that two hashes are returned: one matching the hash of the leave
+//! 6) Ensure that two hashes are returned: one matching the hash of the join
 //! post and one matching the hash of the second topic post.
 //!
-//! 9) Publish a delete post with the hash of the second topic post.
+//! 7) Publish a delete post with the hash of the second topic post.
 //!
-//! 10) Ensure that two hashes are returned: one matching the hash of the leave
+//! 8) Ensure that two hashes are returned: one matching the hash of the join
 //! post and one matching the hash of the first topic post.
-
-// TODO: Update this test suite once live request handling is in place for
-// channel state requests (like it currently is for channel time range
-// requests).
+//!
+//! 9) Publish a leave post to the "entomology" channel.
+//!
+//! 10) Ensure that two hashes are returned: one matching the hash of the
+//! leave post and one matching the hash of the first topic post.
 
 use std::{thread, time::Duration};
 
@@ -159,34 +155,6 @@ async fn channel_state_request_response() -> Result<(), Error> {
 
     /* SECOND RESPONSE */
 
-    // Publish a post to leave the "entomology" channel.
-    let leave_post_hash = cable.post_leave(&channel).await?;
-    debug!("Published leave post for {} channel", &channel);
-
-    // Sleep briefly to allow time for the cable manager to respond.
-    let five_millis = Duration::from_millis(5);
-    thread::sleep(five_millis);
-
-    // Read the response from the stream.
-    let mut res_bytes = [0u8; 1024];
-    let _n = stream.read(&mut res_bytes).await?;
-
-    // Ensure that a hash response was returned by the listening peer.
-    let (_bytes_len, msg) = Message::from_bytes(&res_bytes)?;
-    assert_eq!(msg.message_type(), HASH_RESPONSE);
-
-    if let MessageBody::Response { body } = msg.body {
-        if let ResponseBody::Hash { hashes } = body {
-            // A single post hash should be returned.
-            assert_eq!(hashes.len(), 1);
-            // Ensure the returned hash matches the hash of the recent
-            // leave post.
-            assert_eq!(hashes[0], leave_post_hash);
-        }
-    }
-
-    /* THIRD RESPONSE */
-
     let first_topic = "Insect appreciation and identification assistance".to_string();
 
     // Publish a post to set the topic for the "entomology" channel.
@@ -211,7 +179,7 @@ async fn channel_state_request_response() -> Result<(), Error> {
             // for the latest topic).
             assert_eq!(hashes.len(), 2);
             // Ensure the first hash matches the hash of the recent leave post.
-            assert_eq!(hashes[0], leave_post_hash);
+            assert_eq!(hashes[0], join_post_hash);
             // Ensure the second hash matches the hash of the first topic post.
             assert_eq!(hashes[1], first_topic_hash);
         }
@@ -222,7 +190,7 @@ async fn channel_state_request_response() -> Result<(), Error> {
     let one_second = Duration::from_millis(1000);
     thread::sleep(one_second);
 
-    /* FOURTH RESPONSE */
+    /* THIRD RESPONSE */
 
     let second_topic =
         "Insect appreciation; please don't ask for identification assistance".to_string();
@@ -248,23 +216,21 @@ async fn channel_state_request_response() -> Result<(), Error> {
             // Two post hashes should be returned (one for join / leave and one
             // for the latest topic).
             assert_eq!(hashes.len(), 2);
-            // Ensure the first hash matches the hash of the recent leave post.
-            assert_eq!(hashes[0], leave_post_hash);
+            // Ensure the first hash matches the hash of the recent join post.
+            assert_eq!(hashes[0], join_post_hash);
             // Ensure the second hash matches the hash of the second topic post.
             assert_eq!(hashes[1], second_topic_hash);
         }
     }
 
-    /* FIFTH RESPONSE */
+    /* FOURTH RESPONSE */
 
-    // TODO: Posting a deletion of a channel state-related post does not
-    // currently result in the latest hashes being automatically sent.
-    // Therefore, this test will hang (no bytes are returned from the stream).
-    //
-    // This is a known problem and a solution is being worked on.
+    // Sleep briefly to allow time for the cable manager to respond.
+    let five_millis = Duration::from_millis(500);
+    thread::sleep(five_millis);
 
     // Delete the second (most recent) topic post for the "entomology" channel.
-    let _delete_topic_hash = cable.post_delete(vec![second_topic_hash]).await?;
+    let delete_topic_hash = cable.post_delete(vec![second_topic_hash]).await?;
     debug!(
         "Published delete post for second topic post to {} channel",
         &channel
@@ -284,11 +250,47 @@ async fn channel_state_request_response() -> Result<(), Error> {
 
     if let MessageBody::Response { body } = msg.body {
         if let ResponseBody::Hash { hashes } = body {
-            // Two post hashes should be returned (one for join / leave and one
-            // for the latest topic).
+            // Three post hashes should be returned (one for join / leave, one
+            // for the latest topic and one for the recent delete post).
+            assert_eq!(hashes.len(), 3);
+            // Ensure the first hash matches the hash of the recent join post.
+            assert_eq!(hashes[0], join_post_hash);
+            // Ensure the second hash matches the hash of the first topic post.
+            assert_eq!(hashes[1], first_topic_hash);
+            // Ensure the third hash matches the hash of the recent delete
+            // post.
+            assert_eq!(hashes[2], delete_topic_hash);
+        }
+    }
+
+    /* FIFTH RESPONSE */
+
+    // Publish a post to leave the "entomology" channel.
+    let leave_post_hash = cable.post_leave(&channel).await?;
+    debug!("Published leave post for {} channel", &channel);
+
+    // Sleep briefly to allow time for the cable manager to respond.
+    let five_millis = Duration::from_millis(5);
+    thread::sleep(five_millis);
+
+    // Read the response from the stream.
+    let mut res_bytes = [0u8; 1024];
+    let _n = stream.read(&mut res_bytes).await?;
+
+    // Ensure that a hash response was returned by the listening peer.
+    let (_bytes_len, msg) = Message::from_bytes(&res_bytes)?;
+    assert_eq!(msg.message_type(), HASH_RESPONSE);
+
+    if let MessageBody::Response { body } = msg.body {
+        if let ResponseBody::Hash { hashes } = body {
+            // Two post hashes should be returned.
             assert_eq!(hashes.len(), 2);
-            // Ensure the first hash matches the hash of the recent leave post.
+            // Ensure the returned hash matches the hash of the recent
+            // leave post.
             assert_eq!(hashes[0], leave_post_hash);
+            // TODO: Should this topic hash be returned, even though we have
+            // left the channel?
+            //
             // Ensure the second hash matches the hash of the first topic post.
             assert_eq!(hashes[1], first_topic_hash);
         }
