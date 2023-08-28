@@ -2,7 +2,7 @@
 //! an in-memory implementation of the `Store` trait.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     convert::TryInto,
 };
 
@@ -14,7 +14,7 @@ use async_std::{
 };
 use cable::{
     post::{Post, PostBody},
-    Channel, ChannelOptions, Error, Hash, Nickname, Payload, Timestamp, Topic,
+    Channel, ChannelOptions, Error, Hash, Nickname, Payload, Timestamp, Topic, UserInfo,
 };
 use desert::ToBytes;
 use sodiumoxide::crypto;
@@ -175,6 +175,20 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
     async fn get_latest_join_or_leave_post_hashes<'a>(&'a mut self) -> Result<Vec<Hash>, Error>;
     */
 
+    /// Insert the given delete post hash into the store.
+    async fn insert_delete_hash(&mut self, hash: &Hash);
+
+    /// Retrieve the hashes of all known delete posts.
+    async fn get_delete_hashes(&mut self) -> Vec<Hash>;
+
+    /// Insert the given info post hash into the store using the key defined by
+    /// the given public key.
+    async fn insert_info_hash(&mut self, public_key: &PublicKey, hash: &Hash);
+
+    /// Retrieve the hashes of all known info posts authored by the given
+    /// public key.
+    async fn get_info_hashes(&mut self, public_key: &PublicKey) -> Vec<Hash>;
+
     /// Send the given post to each live stream for which the channel option
     /// criteria are satisfied.
     async fn send_post_to_live_streams(&mut self, post: &Post, channel: &Channel);
@@ -251,16 +265,15 @@ pub struct MemoryStore {
     /// The topic, timestamp and hash of the latest `post/topic` post for each
     /// known channel, indexed by channel.
     channel_topics: Arc<RwLock<TopicHashMap>>,
+    /// The hashes all all known `post/delete` posts.
+    delete_hashes: Arc<RwLock<HashSet<Hash>>>,
+    /// The hashes all all known `post/info` posts.
+    info_hashes: Arc<RwLock<HashMap<PublicKey, Vec<Hash>>>>,
     /// The nickname of each known peer, indexed by public key.
     peer_names: Arc<RwLock<HashMap<PublicKey, Nickname>>>,
     /// All posts and hashes in the store divided according to channel (the
     /// outer key) and indexed by timestamp (the inner key).
     posts: Arc<RwLock<PostMap>>,
-    /*
-    /// All post hashes in the store divided according to channel (the outer
-    /// key) and indexed by timestamp (the inner key).
-    post_hashes: Arc<RwLock<PostHashMap>>,
-    */
     /// Binary payloads for all posts in the store, indexed by the post hash.
     post_payloads: Arc<RwLock<HashMap<Hash, Payload>>>,
     /// An empty `BTreeMap` of posts and hashes, indexed by timestamp.
@@ -269,6 +282,11 @@ pub struct MemoryStore {
     live_streams: Arc<RwLock<LiveStreamMap>>,
     /// The unique identifier of a live stream.
     live_stream_id: Arc<Mutex<usize>>,
+    /*
+    /// All post hashes in the store divided according to channel (the outer
+    /// key) and indexed by timestamp (the inner key).
+    post_hashes: Arc<RwLock<PostHashMap>>,
+    */
 }
 
 impl Default for MemoryStore {
@@ -286,6 +304,8 @@ impl Default for MemoryStore {
             channel_members: Arc::new(RwLock::new(HashMap::new())),
             channel_membership: Arc::new(RwLock::new(HashMap::new())),
             channel_topics: Arc::new(RwLock::new(HashMap::new())),
+            delete_hashes: Arc::new(RwLock::new(HashSet::new())),
+            info_hashes: Arc::new(RwLock::new(HashMap::new())),
             peer_names: Arc::new(RwLock::new(HashMap::new())),
             posts: Arc::new(RwLock::new(HashMap::new())),
             //post_hashes: Arc::new(RwLock::new(HashMap::new())),
@@ -564,6 +584,44 @@ impl Store for MemoryStore {
     }
     */
 
+    async fn insert_delete_hash(&mut self, hash: &Hash) {
+        let mut delete_hashes = self.delete_hashes.write().await;
+        delete_hashes.insert(*hash);
+    }
+
+    async fn get_delete_hashes(&mut self) -> Vec<Hash> {
+        let mut delete_hashes = Vec::new();
+        for hash in self.delete_hashes.read().await.iter() {
+            delete_hashes.push(*hash)
+        }
+
+        delete_hashes
+    }
+
+    async fn insert_info_hash(&mut self, public_key: &PublicKey, hash: &Hash) {
+        // Open the info hashes store for writing.
+        let mut info_hashes = self.info_hashes.write().await;
+        // Retrieve the stored hashes matching the given public key.
+        if let Some(hashes) = info_hashes.get_mut(public_key) {
+            // Add the hash to the vector of hashes indexed by the
+            // given public key.
+            hashes.push(hash.to_owned())
+        } else {
+            // Insert the public key into the hash map, using the
+            // given hash to create the value vec.
+            info_hashes.insert(public_key.to_owned(), vec![*hash]);
+        }
+    }
+
+    async fn get_info_hashes(&mut self, public_key: &PublicKey) -> Vec<Hash> {
+        self.info_hashes
+            .read()
+            .await
+            .get(public_key)
+            .map(|hashes| hashes.to_owned())
+            .unwrap_or(Vec::new())
+    }
+
     async fn send_post_to_live_streams(&mut self, post: &Post, channel: &Channel) {
         if let Some(senders) = self.live_streams.read().await.get(channel) {
             for stream in senders.write().await.iter_mut() {
@@ -692,7 +750,8 @@ impl Store for MemoryStore {
                 //
                 // channel_topics
                 for hash in hashes {
-                    self.delete_post(hash).await?
+                    self.delete_post(hash).await?;
+                    self.insert_delete_hash(hash).await;
                 }
 
                 // Insert the binary payload of the post into the
@@ -705,6 +764,27 @@ impl Store for MemoryStore {
             PostBody::Info { info } => {
                 // Insert the post into the `posts` store.
                 self.update_posts(post, None, timestamp, hash).await;
+
+                let public_key = &post.get_public_key();
+
+                // Insert the public key of the post author and the assigned
+                // name if the key of the info element is "name".
+                for UserInfo { key, val } in info {
+                    if key == "name" {
+                        self.insert_name(public_key, val).await;
+                    }
+                }
+
+                self.insert_info_hash(public_key, &hash).await;
+
+                // Insert the binary payload of the post into the
+                // `HashMap` of post data, indexed by the hash.
+                self.post_payloads
+                    .write()
+                    .await
+                    .insert(hash, post.to_bytes()?);
+
+                //self.send_post_to_live_streams(post, None).await;
             }
             _ => {}
         }
@@ -765,9 +845,10 @@ impl Store for MemoryStore {
     }
 
     async fn get_posts(&mut self, opts: &ChannelOptions) -> Result<PostStream, Error> {
-        let posts = self
+        // Retrieve all posts matching the given channel options.
+        let mut posts = self
             .posts
-            .write()
+            .read()
             .await
             .get(&Some(opts.channel.to_owned()))
             // Return an empty map if no posts are found matching the given
@@ -778,6 +859,26 @@ impl Store for MemoryStore {
             // wrapping it in a `Result`.
             .flat_map(|(_time, posts)| posts.iter().map(|(post, _hash)| Ok(post.clone())))
             .collect::<Vec<Result<Post, Error>>>();
+
+        // TODO: Would it be better to split this into another method?
+        // It will result in inefficient sending here; all non-channel posts
+        // will be sent for each open channel (as a result of
+        // `get_posts_live()` being called for each new channel).
+        //
+        // Retrieve all posts which do not have a channel field.
+        // For example, `post/info` posts.
+        let non_channel_posts = self
+            .posts
+            .read()
+            .await
+            .get(&None)
+            .unwrap_or(&self.empty_post_bt)
+            .iter()
+            .flat_map(|(_time, posts)| posts.iter().map(|(post, _hash)| Ok(post.clone())))
+            .collect::<Vec<Result<Post, Error>>>();
+
+        // Add the non-channel posts to the channel posts.
+        posts.extend(non_channel_posts);
 
         let post_stream = Box::new(stream::from_iter(posts.into_iter()));
 
@@ -831,7 +932,8 @@ impl Store for MemoryStore {
             }
         };
 
-        // Retrieve all stored posts matching the channel options.
+        // Retrieve all stored posts matching the channel options,
+        // as well as all non-channel posts.
         let post_stream = self.get_posts(opts).await?;
         // Merge the existing post stream with the live post stream.
         let live_post_stream = Box::new(post_stream.merge(live_stream));
