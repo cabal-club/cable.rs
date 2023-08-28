@@ -2,7 +2,7 @@
 //! an in-memory implementation of the `Store` trait.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     convert::TryInto,
 };
 
@@ -16,7 +16,7 @@ use cable::{
     post::{Post, PostBody},
     Channel, ChannelOptions, Error, Hash, Nickname, Payload, Timestamp, Topic, UserInfo,
 };
-use desert::ToBytes;
+use desert::{FromBytes, ToBytes};
 use sodiumoxide::crypto;
 
 use crate::stream::{HashStream, LiveStream, PostStream};
@@ -175,11 +175,13 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
     async fn get_latest_join_or_leave_post_hashes<'a>(&'a mut self) -> Result<Vec<Hash>, Error>;
     */
 
-    /// Insert the given delete post hash into the store.
-    async fn insert_delete_hash(&mut self, hash: &Hash);
+    /// Insert the given delete post hash into the store using the key defined
+    /// by the given public key.
+    async fn insert_delete_hash(&mut self, public_key: &PublicKey, hash: &Hash);
 
-    /// Retrieve the hashes of all known delete posts.
-    async fn get_delete_hashes(&mut self) -> Vec<Hash>;
+    /// Retrieve the hashes of all known delete posts authored by the given
+    /// public key.
+    async fn get_delete_hashes(&mut self, public_key: &PublicKey) -> Vec<Hash>;
 
     /// Insert the given info post hash into the store using the key defined by
     /// the given public key.
@@ -238,6 +240,9 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
     /// given `ChannelOptions`.
     async fn get_post_hashes<'a>(&'a mut self, opts: &ChannelOptions) -> Result<HashStream, Error>;
 
+    /// Retrieve the post payload for the post represented by the given hash.
+    async fn get_post_payload(&mut self, hash: &Hash) -> Option<Payload>;
+
     /// Retrieve the post payloads for all posts represented by the given hashes.
     async fn get_post_payloads(&mut self, hashes: &[Hash]) -> Result<Vec<Payload>, Error>;
 
@@ -266,7 +271,7 @@ pub struct MemoryStore {
     /// known channel, indexed by channel.
     channel_topics: Arc<RwLock<TopicHashMap>>,
     /// The hashes all all known `post/delete` posts.
-    delete_hashes: Arc<RwLock<HashSet<Hash>>>,
+    delete_hashes: Arc<RwLock<HashMap<PublicKey, Vec<Hash>>>>,
     /// The hashes all all known `post/info` posts.
     info_hashes: Arc<RwLock<HashMap<PublicKey, Vec<Hash>>>>,
     /// The nickname of each known peer, indexed by public key.
@@ -304,7 +309,7 @@ impl Default for MemoryStore {
             channel_members: Arc::new(RwLock::new(HashMap::new())),
             channel_membership: Arc::new(RwLock::new(HashMap::new())),
             channel_topics: Arc::new(RwLock::new(HashMap::new())),
-            delete_hashes: Arc::new(RwLock::new(HashSet::new())),
+            delete_hashes: Arc::new(RwLock::new(HashMap::new())),
             info_hashes: Arc::new(RwLock::new(HashMap::new())),
             peer_names: Arc::new(RwLock::new(HashMap::new())),
             posts: Arc::new(RwLock::new(HashMap::new())),
@@ -584,18 +589,28 @@ impl Store for MemoryStore {
     }
     */
 
-    async fn insert_delete_hash(&mut self, hash: &Hash) {
+    async fn insert_delete_hash(&mut self, public_key: &PublicKey, hash: &Hash) {
+        // Open the delete hashes store for writing.
         let mut delete_hashes = self.delete_hashes.write().await;
-        delete_hashes.insert(*hash);
+        // Retrieve the stored hashes matching the given public key.
+        if let Some(hashes) = delete_hashes.get_mut(public_key) {
+            // Add the hash to the vector of hashes indexed by the
+            // given public key.
+            hashes.push(hash.to_owned())
+        } else {
+            // Insert the public key into the hash map, using the
+            // given hash to create the value vec.
+            delete_hashes.insert(public_key.to_owned(), vec![*hash]);
+        }
     }
 
-    async fn get_delete_hashes(&mut self) -> Vec<Hash> {
-        let mut delete_hashes = Vec::new();
-        for hash in self.delete_hashes.read().await.iter() {
-            delete_hashes.push(*hash)
-        }
-
-        delete_hashes
+    async fn get_delete_hashes(&mut self, public_key: &PublicKey) -> Vec<Hash> {
+        self.delete_hashes
+            .read()
+            .await
+            .get(public_key)
+            .map(|hashes| hashes.to_owned())
+            .unwrap_or(Vec::new())
     }
 
     async fn insert_info_hash(&mut self, public_key: &PublicKey, hash: &Hash) {
@@ -746,12 +761,27 @@ impl Store for MemoryStore {
                 self.send_post_to_live_streams(post, channel).await;
             }
             PostBody::Delete { hashes } => {
+                let public_key = &post.get_public_key();
+
                 // Places / stores for checking and deletion:
                 //
                 // channel_topics
-                for hash in hashes {
-                    self.delete_post(hash).await?;
-                    self.insert_delete_hash(hash).await;
+                for post_hash in hashes {
+                    if let Some(payload) = self.get_post_payload(post_hash).await {
+                        // TODO: Consider whether it is more efficient to
+                        // decode the payload or retrieve the post from the
+                        // `posts` store.
+                        let (_s, stored_post) = Post::from_bytes(&payload)?;
+                        // Only delete the post if the author matches the
+                        // author of the `post/delete` post.
+                        if post.get_public_key() == stored_post.get_public_key() {
+                            self.delete_post(post_hash).await?;
+                            // The hash of the `post/delete` post is inserted,
+                            // not the hash of the post referenced by the
+                            // `post/delete` post.
+                            self.insert_delete_hash(public_key, &hash).await;
+                        }
+                    }
                 }
 
                 // Insert the binary payload of the post into the
@@ -832,11 +862,6 @@ impl Store for MemoryStore {
 
     async fn delete_post(&mut self, hash: &Hash) -> Result<(), Error> {
         // Remove post from all stores.
-
-        // TODO: We have to check the author of the `post/delete` message
-        // to ensure it matches the author of the target post before moving
-        // ahead with deletion.
-
         self.remove_channel_topic(hash).await?;
         self.remove_channel_membership_hash(hash).await?;
         self.remove_post(hash).await?;
@@ -968,6 +993,14 @@ impl Store for MemoryStore {
         let hash_stream = Box::new(stream::from_iter(hashes.into_iter()));
 
         Ok(hash_stream)
+    }
+
+    // TODO: Unify API. Only return `Result` where appropriate.
+    async fn get_post_payload(&mut self, hash: &Hash) -> Option<Payload> {
+        let post_payloads = self.post_payloads.read().await;
+        let post_payload = post_payloads.get(hash);
+
+        post_payload.cloned()
     }
 
     async fn get_post_payloads(&mut self, hashes: &[Hash]) -> Result<Vec<Payload>, Error> {
