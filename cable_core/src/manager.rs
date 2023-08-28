@@ -297,7 +297,7 @@ where
             // Retrieve all channels of which the author of the post is a
             // member and send post hashes for those channels. This ensures
             // that any "live" channel state requests for these channels
-            // receive the latest `post/info` hashes.
+            // receive the latest `post/info` and `post/delete` hashes.
             let public_key = post.get_public_key();
             let channels = self.store.get_channels().await?;
             for channel in channels {
@@ -345,16 +345,20 @@ where
                                 hashes.push(hash)
                             }
 
-                            // Return all info post hashes for members of
-                            // this channel.
-                            //
                             // Retrieve public keys of all channel members.
                             let channel_members = self.store.get_channel_members(channel).await?;
-                            // Retrieve info post hashes for each member's public key.
                             for public_key in channel_members {
+                                // Return all info post hashes for members of
+                                // this channel.
                                 let peer_info_hashes =
                                     self.store.get_info_hashes(&public_key).await;
                                 hashes.extend(peer_info_hashes);
+
+                                // Return all delete post hashes for members of
+                                // this channel.
+                                let peer_delete_hashes =
+                                    self.store.get_delete_hashes(&public_key).await;
+                                hashes.extend(peer_delete_hashes);
                             }
 
                             // Construct a new hash response message.
