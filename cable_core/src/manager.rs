@@ -288,16 +288,24 @@ where
         // Insert the post into the local store.
         let hash = self.store.insert_post(&post).await?;
 
-        // TODO: Delete posts do not include a channel.
-        // This means that `send_post_hashes()` will not result in the latest
-        // channel state hashes being automatically sent for any live requests
-        // after a deletion.
-        //
-        // How to solve this?
-        let channel = post.get_channel();
-
         // Send post hashes to all peers for whom we hold inbound requests.
-        self.send_post_hashes(channel).await?;
+        if let Some(channel) = post.get_channel() {
+            self.send_post_hashes(channel).await?;
+        } else {
+            // Info and delete post types do not have a channel.
+            //
+            // Retrieve all channels of which the author of the post is a
+            // member and send post hashes for those channels. This ensures
+            // that any "live" channel state requests for these channels
+            // receive the latest `post/info` hashes.
+            let public_key = post.get_public_key();
+            let channels = self.store.get_channels().await?;
+            for channel in channels {
+                if self.store.is_channel_member(&channel, &public_key).await? {
+                    self.send_post_hashes(&channel).await?;
+                }
+            }
+        }
 
         Ok(hash)
     }
@@ -307,67 +315,80 @@ where
     ///
     /// Live requests may have originated from a ChannelTimeRange (`time_end`
     /// of 0) or a ChannelState request (`future` of 1).
-    async fn send_post_hashes(&mut self, channel: Option<&Channel>) -> Result<(), Error> {
+    ///
+    /// Hashes of `post/delete` and `post/info` posts are sent as part of
+    /// ChannelState responses.
+    async fn send_post_hashes(&mut self, channel: &Channel) -> Result<(), Error> {
         // Iterate over all live peer requests.
         for (peer_id, live_requests) in self.live_requests.read().await.iter() {
             // Iterate over peer requests.
             for live_request in live_requests {
-                if let Some(channel) = channel {
-                    // Create an empty vector to store post hashes to be sent
-                    // in response.
-                    let mut hashes = vec![];
+                // Create an empty vector to store post hashes to be sent
+                // in response.
+                let mut hashes = vec![];
 
-                    match live_request {
-                        LiveRequest::ChannelState(req_id, req_channel) => {
-                            // Only send hashes if the channel of the post which invoked
-                            // the call to `send_post_hashes()` matches the channel of
-                            // the peer request.
-                            if req_channel == channel {
-                                // Return all channel state post hashes for this channel.
-                                let mut channel_membership_hashes =
-                                    self.store.get_channel_membership_hashes(channel).await?;
-                                hashes.append(&mut channel_membership_hashes);
+                match live_request {
+                    LiveRequest::ChannelState(req_id, req_channel) => {
+                        // Only send hashes if the channel of the post which invoked
+                        // the call to `send_post_hashes()` matches the channel of
+                        // the peer request.
+                        if req_channel == channel {
+                            // Return all channel state post hashes for this channel.
+                            let mut channel_membership_hashes =
+                                self.store.get_channel_membership_hashes(channel).await?;
+                            hashes.append(&mut channel_membership_hashes);
 
-                                // Return the channel topic post hash for this channel.
-                                let channel_topic_hash =
-                                    self.store.get_channel_topic_and_hash(channel).await?;
-                                if let Some((_topic, hash)) = channel_topic_hash {
-                                    hashes.push(hash)
-                                }
-
-                                // Construct a new hash response message.
-                                let response = Message::hash_response(NO_CIRCUIT, *req_id, hashes);
-
-                                // Send the response to the peer.
-                                self.send(*peer_id, &response).await?;
+                            // Return the channel topic post hash for this channel.
+                            let channel_topic_hash =
+                                self.store.get_channel_topic_and_hash(channel).await?;
+                            if let Some((_topic, hash)) = channel_topic_hash {
+                                hashes.push(hash)
                             }
+
+                            // Return all info post hashes for members of
+                            // this channel.
+                            //
+                            // Retrieve public keys of all channel members.
+                            let channel_members = self.store.get_channel_members(channel).await?;
+                            // Retrieve info post hashes for each member's public key.
+                            for public_key in channel_members {
+                                let peer_info_hashes =
+                                    self.store.get_info_hashes(&public_key).await;
+                                hashes.extend(peer_info_hashes);
+                            }
+
+                            // Construct a new hash response message.
+                            let response = Message::hash_response(NO_CIRCUIT, *req_id, hashes);
+
+                            // Send the response to the peer.
+                            self.send(*peer_id, &response).await?;
                         }
-                        LiveRequest::ChannelTimeRange(req_id, channel_opts) => {
-                            // Only send hashes if the channel of the post which invoked
-                            // the call to `send_post_hashes()` matches the channel of
-                            // the peer request.
-                            if &channel_opts.channel == channel {
-                                let limit = channel_opts.limit.min(4096);
+                    }
+                    LiveRequest::ChannelTimeRange(req_id, channel_opts) => {
+                        // Only send hashes if the channel of the post which invoked
+                        // the call to `send_post_hashes()` matches the channel of
+                        // the peer request.
+                        if &channel_opts.channel == channel {
+                            let limit = channel_opts.limit.min(4096);
 
-                                // Get all post hashes matching the request parameters.
-                                let mut stream = self.store.get_post_hashes(channel_opts).await?;
-                                while let Some(result) = stream.next().await {
-                                    hashes.push(result?);
-                                    // Break once the request limit has been reached.
-                                    if hashes.len() as u64 >= limit {
-                                        break;
-                                    }
+                            // Get all post hashes matching the request parameters.
+                            let mut stream = self.store.get_post_hashes(channel_opts).await?;
+                            while let Some(result) = stream.next().await {
+                                hashes.push(result?);
+                                // Break once the request limit has been reached.
+                                if hashes.len() as u64 >= limit {
+                                    break;
                                 }
-                                // Drop the mutable borrow of `self` to allow the later
-                                // call to `self.send()` (immutable borrow).
-                                drop(stream);
-
-                                // Construct a new hash response message.
-                                let response = Message::hash_response(NO_CIRCUIT, *req_id, hashes);
-
-                                // Send the response to the peer.
-                                self.send(*peer_id, &response).await?;
                             }
+                            // Drop the mutable borrow of `self` to allow the later
+                            // call to `self.send()` (immutable borrow).
+                            drop(stream);
+
+                            // Construct a new hash response message.
+                            let response = Message::hash_response(NO_CIRCUIT, *req_id, hashes);
+
+                            // Send the response to the peer.
+                            self.send(*peer_id, &response).await?;
                         }
                     }
                 }
