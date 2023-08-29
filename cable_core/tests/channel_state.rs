@@ -28,13 +28,27 @@
 //!
 //! 7) Publish a delete post with the hash of the second topic post.
 //!
-//! 8) Ensure that two hashes are returned: one matching the hash of the join
-//! post and one matching the hash of the first topic post.
+//! 8) Ensure that three hashes are returned: one matching the hash of the join
+//! post, one matching the hash of the first topic post and one matching the
+//! hash of the delete topic post.
 //!
-//! 9) Publish a leave post to the "entomology" channel.
+//! 9) Publish an info post with the nickname "glyph".
 //!
-//! 10) Ensure that two hashes are returned: one matching the hash of the
-//! leave post and one matching the hash of the first topic post.
+//! 10) Ensure that four hashes are returned: one matching the hash of the join
+//! post, one matching the hash of the first topic post, one matching the hash
+//! of the delete topic post and one matching the hash of the first name post.
+//!
+//! 11) Publish a second info post with the nickname "mycognosist".
+//!
+//! 12) Ensure that four hashes are returned: one matching the hash of the join
+//! post, one matching the hash of the first topic post, one matching the hash
+//! of the delete topic post and one matching the hash of the second name post.
+//!
+//! 13) Publish a leave post to the "entomology" channel.
+//!
+//! 10) Ensure that three hashes are returned: one matching the hash of the
+//! leave post, one matching the hash of the first topic post and one matching
+//! the hash of the second name post.
 
 use std::{thread, time::Duration};
 
@@ -265,6 +279,82 @@ async fn channel_state_request_response() -> Result<(), Error> {
 
     /* FIFTH RESPONSE */
 
+    let nickname = "glyph";
+
+    // Publish a post to set a nickname.
+    let first_name_hash = cable.post_info_name(nickname).await?;
+    debug!("Published info post for name {:?}", nickname);
+
+    // Sleep briefly to allow time for the cable manager to respond.
+    let five_millis = Duration::from_millis(5);
+    thread::sleep(five_millis);
+
+    // Read the response from the stream.
+    let mut res_bytes = [0u8; 1024];
+    let _n = stream.read(&mut res_bytes).await?;
+
+    // Ensure that a hash response was returned by the listening peer.
+    let (_bytes_len, msg) = Message::from_bytes(&res_bytes)?;
+    assert_eq!(msg.message_type(), HASH_RESPONSE);
+
+    if let MessageBody::Response { body } = msg.body {
+        if let ResponseBody::Hash { hashes } = body {
+            // Five post hashes should be returned.
+            assert_eq!(hashes.len(), 4);
+            // Ensure the returned hash matches the hash of the recent
+            // join post.
+            assert_eq!(hashes[0], join_post_hash);
+            // Ensure the second hash matches the hash of the first topic post.
+            assert_eq!(hashes[1], first_topic_hash);
+            // Ensure the third hash matches the hash of the recent delete
+            // post.
+            assert_eq!(hashes[2], delete_topic_hash);
+            // Ensure the fourth hash matches the hash of the first name info
+            // post.
+            assert_eq!(hashes[3], first_name_hash);
+        }
+    }
+
+    /* SIXTH RESPONSE */
+
+    let second_nickname = "mycognosist";
+
+    // Publish a post to (re)set a nickname.
+    let second_name_hash = cable.post_info_name(second_nickname).await?;
+    debug!("Published info post for name {:?}", second_nickname);
+
+    // Sleep briefly to allow time for the cable manager to respond.
+    let five_millis = Duration::from_millis(5);
+    thread::sleep(five_millis);
+
+    // Read the response from the stream.
+    let mut res_bytes = [0u8; 1024];
+    let _n = stream.read(&mut res_bytes).await?;
+
+    // Ensure that a hash response was returned by the listening peer.
+    let (_bytes_len, msg) = Message::from_bytes(&res_bytes)?;
+    assert_eq!(msg.message_type(), HASH_RESPONSE);
+
+    if let MessageBody::Response { body } = msg.body {
+        if let ResponseBody::Hash { hashes } = body {
+            // Four post hashes should be returned.
+            assert_eq!(hashes.len(), 4);
+            // Ensure the returned hash matches the hash of the recent
+            // join post.
+            assert_eq!(hashes[0], join_post_hash);
+            // Ensure the second hash matches the hash of the first topic post.
+            assert_eq!(hashes[1], first_topic_hash);
+            // Ensure the third hash matches the hash of the recent delete
+            // post.
+            assert_eq!(hashes[2], delete_topic_hash);
+            // Ensure the fourth hash matches the hash of the second name info
+            // post.
+            assert_eq!(hashes[3], second_name_hash);
+        }
+    }
+
+    /* SEVENTH RESPONSE */
+
     // Publish a post to leave the "entomology" channel.
     let leave_post_hash = cable.post_leave(&channel).await?;
     debug!("Published leave post for {} channel", &channel);
@@ -284,15 +374,15 @@ async fn channel_state_request_response() -> Result<(), Error> {
     if let MessageBody::Response { body } = msg.body {
         if let ResponseBody::Hash { hashes } = body {
             // Two post hashes should be returned.
-            assert_eq!(hashes.len(), 2);
+            assert_eq!(hashes.len(), 3);
             // Ensure the returned hash matches the hash of the recent
             // leave post.
             assert_eq!(hashes[0], leave_post_hash);
-            // TODO: Should this topic hash be returned, even though we have
-            // left the channel?
-            //
             // Ensure the second hash matches the hash of the first topic post.
             assert_eq!(hashes[1], first_topic_hash);
+            // Ensure the third hash matches the hash of the second name info
+            // post.
+            assert_eq!(hashes[2], second_name_hash);
         }
     }
 
