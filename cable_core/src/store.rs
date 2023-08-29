@@ -129,6 +129,28 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
         channel: &Channel,
     ) -> Result<Vec<PublicKey>, Error>;
 
+    /// Insert the given public key into the store using the key defined by the
+    /// given channel.
+    async fn insert_ex_channel_member(
+        &mut self,
+        channel: &Channel,
+        public_key: &PublicKey,
+    ) -> Result<(), Error>;
+
+    /// Remove the given public key from the ex-membership store using the key
+    /// defined by the given channel.
+    async fn remove_ex_channel_member(
+        &mut self,
+        channel: &Channel,
+        public_key: &PublicKey,
+    ) -> Result<(), Error>;
+
+    /// Retrieve all ex-members of the given channel.
+    async fn get_ex_channel_members<'a>(
+        &'a mut self,
+        channel: &Channel,
+    ) -> Result<Vec<PublicKey>, Error>;
+
     /// Update the membership store with the hash of the latest `post/join` or
     /// `post/leave` post made to the given channel by the given public key.
     async fn update_channel_membership_hashes(
@@ -287,6 +309,11 @@ pub struct MemoryStore {
     /// This map is updated according to received / published `post/join`
     /// and `post/leave` posts.
     channel_members: Arc<RwLock<HashMap<Channel, Vec<PublicKey>>>>,
+    /// The public keys of all ex-members, indexed by channel.
+    ///
+    /// This map is updated according to received / published `post/join`
+    /// and `post/leave` posts.
+    ex_channel_members: Arc<RwLock<HashMap<Channel, Vec<PublicKey>>>>,
     /// The hash of the latest `post/join` or `post/leave` post for each known
     /// peer, indexed by channel (the outer key) and public key (the first
     /// element of the tuple).
@@ -332,6 +359,7 @@ impl Default for MemoryStore {
             ),
             channels: Arc::new(RwLock::new(BTreeSet::new())),
             channel_members: Arc::new(RwLock::new(HashMap::new())),
+            ex_channel_members: Arc::new(RwLock::new(HashMap::new())),
             channel_membership: Arc::new(RwLock::new(HashMap::new())),
             channel_topics: Arc::new(RwLock::new(HashMap::new())),
             delete_hashes: Arc::new(RwLock::new(HashMap::new())),
@@ -442,6 +470,58 @@ impl Store for MemoryStore {
             .unwrap_or(Vec::new());
 
         Ok(channel_members)
+    }
+
+    async fn insert_ex_channel_member(
+        &mut self,
+        channel: &Channel,
+        public_key: &PublicKey,
+    ) -> Result<(), Error> {
+        // Open the ex-channel members store for writing.
+        let mut ex_channel_members = self.ex_channel_members.write().await;
+        // Retrieve the stored ex-members matching the given channel.
+        if let Some(ex_members) = ex_channel_members.get_mut(channel) {
+            // Add the public key to the vector of public keys indexed by the
+            // given channel.
+            ex_members.push(public_key.to_owned())
+        } else {
+            // Insert the channel into the hash map, using the
+            // given public key to create the value vec.
+            ex_channel_members.insert(channel.to_owned(), vec![*public_key]);
+        }
+
+        Ok(())
+    }
+
+    async fn remove_ex_channel_member(
+        &mut self,
+        channel: &Channel,
+        public_key: &PublicKey,
+    ) -> Result<(), Error> {
+        // Open the ex-channel members store for writing.
+        let mut ex_channel_members = self.ex_channel_members.write().await;
+        // Retrieve the stored ex-members matching the given channel.
+        if let Some(ex_members) = ex_channel_members.get_mut(channel) {
+            // Iterate over the ex-members and retain only those for which the
+            // member does not match the given public key.
+            ex_members.retain(|ex_member| ex_member != public_key);
+        }
+
+        Ok(())
+    }
+
+    async fn get_ex_channel_members(&mut self, channel: &Channel) -> Result<Vec<PublicKey>, Error> {
+        let ex_channel_members = self
+            .ex_channel_members
+            .read()
+            .await
+            .get(channel)
+            .map(|member| member.to_owned())
+            // Return an empty vector if no members are found matching the
+            // given channel.
+            .unwrap_or(Vec::new());
+
+        Ok(ex_channel_members)
     }
 
     async fn is_channel_member(
@@ -794,6 +874,7 @@ impl Store for MemoryStore {
                 self.update_channel_membership_hashes(channel, public_key, &hash)
                     .await?;
                 self.insert_channel_member(channel, public_key).await?;
+                self.remove_ex_channel_member(channel, public_key).await?;
                 self.insert_post_payload(&hash, post.to_bytes()?).await;
             }
             PostBody::Leave { channel } => {
@@ -802,6 +883,7 @@ impl Store for MemoryStore {
                 self.update_channel_membership_hashes(channel, public_key, &hash)
                     .await?;
                 self.remove_channel_member(channel, public_key).await?;
+                self.insert_ex_channel_member(channel, public_key).await?;
                 self.insert_post_payload(&hash, post.to_bytes()?).await;
             }
             PostBody::Topic { channel, topic } => {
