@@ -244,6 +244,13 @@ impl Post {
         }
     }
 
+    /// Return the public key which authored the post.
+    pub fn get_public_key(&self) -> [u8; 32] {
+        let PostHeader { public_key, .. } = &self.header;
+
+        *public_key
+    }
+
     /// Return the timestamp of the post.
     pub fn get_timestamp(&self) -> u64 {
         let PostHeader { timestamp, .. } = &self.header;

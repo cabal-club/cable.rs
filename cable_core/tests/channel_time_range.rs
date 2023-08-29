@@ -5,7 +5,7 @@
 //!
 //! Run the test with debug logging enabled in a terminal:
 //!
-//! `RUST_LOG=debug cargo test channel_time_range`
+//! `RUST_LOG=debug cargo test channel_time_range_request_response`
 //!
 //! An outline of the actions taken in this test:
 //!
@@ -72,7 +72,7 @@ fn now() -> u64 {
 }
 
 #[async_std::test]
-async fn request_response() -> Result<(), Error> {
+async fn channel_time_range_request_response() -> Result<(), Error> {
     init();
 
     // Create a store and a cable manager.

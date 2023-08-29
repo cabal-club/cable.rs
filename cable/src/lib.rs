@@ -31,6 +31,8 @@ pub type Text = String;
 pub type Timestamp = u64;
 /// The topic of a channel.
 pub type Topic = String;
+/// The nickname of a peer.
+pub type Nickname = String;
 
 #[derive(Clone, Debug, PartialEq)]
 /// Query parameters defining a channel, time range and number of posts.

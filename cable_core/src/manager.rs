@@ -37,10 +37,33 @@ const TTL: u8 = 1;
 pub type PeerId = usize;
 
 /// A `HashMap` of peer requests with a key of peer ID and a value of a `Vec`
-/// of request ID and channel options.
-pub type PeerRequestMap = HashMap<PeerId, Vec<(ReqId, ChannelOptions)>>;
+/// of request ID and `LiveRequest`.
+pub type PeerRequestMap = HashMap<PeerId, Vec<LiveRequest>>;
+
+/// Inbound requests for which the keep-alive option has been selected.
+///
+/// This helps us to respond to live requests with new hashes as they become
+/// known. The hashes must satisfy the given request parameters, either channel
+/// name or channel options, in order to be sent.
+#[derive(Debug, PartialEq)]
+pub enum LiveRequest {
+    /// A channel state request with specified ID and channel.
+    ChannelState(ReqId, Channel),
+    /// A channel time range request with specified ID and channel options.
+    ChannelTimeRange(ReqId, ChannelOptions),
+}
+
+impl LiveRequest {
+    fn req_id(&self) -> &ReqId {
+        match self {
+            LiveRequest::ChannelState(req_id, _channel) => req_id,
+            LiveRequest::ChannelTimeRange(req_id, _channel_opts) => req_id,
+        }
+    }
+}
 
 /// The origin of a request.
+#[derive(Debug)]
 enum RequestOrigin {
     /// Local request.
     Local,
@@ -84,6 +107,9 @@ pub struct CableManager<S: Store> {
     /// Hashes of posts which have been requested from remote peers by the
     /// local peer.
     requested_posts: Arc<RwLock<HashSet<Hash>>>,
+    /// Hashes of posts which remote peers have marked for deletion, or which
+    /// have been authored and deleted by the local peer.
+    deleted_posts: Arc<RwLock<HashSet<Hash>>>,
 }
 
 impl<S> CableManager<S>
@@ -102,14 +128,40 @@ where
             live_requests: Arc::new(RwLock::new(HashMap::new())),
             outbound_requests: Arc::new(RwLock::new(HashMap::new())),
             requested_posts: Arc::new(RwLock::new(HashSet::new())),
+            deleted_posts: Arc::new(RwLock::new(HashSet::new())),
         }
     }
-}
 
-impl<S> CableManager<S>
-where
-    S: Store,
-{
+    /// Query if the request defined by the given peer ID and request ID is an
+    /// active live request.
+    async fn is_live_request(&mut self, peer_id: &PeerId, req_id: &ReqId) -> bool {
+        let live_requests = self.live_requests.read().await;
+        // Check if there are active live requests for the given peer ID.
+        if let Some(peer_requests) = live_requests.get(peer_id) {
+            // Iterate over the peer requests and report on the presence of the
+            // given request ID.
+            peer_requests
+                .iter()
+                .any(|live_request| live_request.req_id() == req_id)
+        } else {
+            false
+        }
+    }
+
+    /// Remove the live request defined by the given peer ID and request ID.
+    async fn remove_live_request(&mut self, peer_id: &PeerId, req_id: &ReqId) -> Result<(), Error> {
+        // Remove the request from the map of live requests.
+        let mut live_requests = self.live_requests.write().await;
+        if let Some(peer_requests) = live_requests.get_mut(peer_id) {
+            // Iterate over the peer requests and retain only the
+            // requests for which the ID does not match the given
+            // request ID.
+            peer_requests.retain(|live_request| live_request.req_id() != req_id);
+        }
+
+        Ok(())
+    }
+
     /// Post header value generator.
     async fn post_header_values(
         &mut self,
@@ -154,6 +206,17 @@ where
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_secs();
+
+        // Add the hashes to the store of deleted posts.
+        //
+        // This helps to ensure these posts won't be re-added to the
+        // local store if they are ever returned by a remote peer.
+        let mut deleted_posts = self.deleted_posts.write().await;
+        deleted_posts.extend(&hashes);
+
+        // Drop the mutable borrow of `self` to allow the later
+        // call to `self.post()` (immutable borrow).
+        drop(deleted_posts);
 
         // Construct a new delete post.
         let post = Post::delete(public_key, links, timestamp, hashes);
@@ -225,52 +288,127 @@ where
         // Insert the post into the local store.
         let hash = self.store.insert_post(&post).await?;
 
-        let channel = post.get_channel();
-
-        // Update the store of known channels.
-        if let Some(channel) = channel {
-            self.store.insert_channel(channel).await?;
-        }
-
         // Send post hashes to all peers for whom we hold inbound requests.
-        self.send_post_hashes(channel).await?;
+        if let Some(channel) = post.get_channel() {
+            self.send_post_hashes(channel).await?;
+        } else {
+            // Info and delete post types do not have a channel.
+            //
+            // Retrieve all channels of which the author of the post is a
+            // member and send post hashes for those channels. This ensures
+            // that any "live" channel state requests for these channels
+            // receive the latest `post/info` and `post/delete` hashes.
+            let public_key = post.get_public_key();
+            let channels = self.store.get_channels().await?;
+            for channel in channels {
+                if self.store.is_channel_member(&channel, &public_key).await? {
+                    self.send_post_hashes(&channel).await?;
+                }
+            }
+        }
 
         Ok(hash)
     }
 
     /// Send post hashes matching peer request parameters for all live
     /// requests.
-    async fn send_post_hashes(&mut self, channel: Option<&Channel>) -> Result<(), Error> {
+    ///
+    /// Live requests may have originated from a ChannelTimeRange (`time_end`
+    /// of 0) or a ChannelState request (`future` of 1).
+    ///
+    /// Hashes of `post/delete` and `post/info` posts are sent as part of
+    /// ChannelState responses.
+    async fn send_post_hashes(&mut self, channel: &Channel) -> Result<(), Error> {
         // Iterate over all live peer requests.
-        for (peer_id, reqs) in self.live_requests.read().await.iter() {
+        for (peer_id, live_requests) in self.live_requests.read().await.iter() {
             // Iterate over peer requests.
-            for (req_id, opts) in reqs {
-                if let Some(channel) = channel {
-                    // Only send hashes if the channel of the post which invoked
-                    // the call to `send_post_hashes()` matches the channel of
-                    // the peer request.
-                    if &opts.channel == channel {
-                        let limit = opts.limit.min(4096);
-                        let mut hashes = vec![];
+            for live_request in live_requests {
+                // Create an empty vector to store post hashes to be sent
+                // in response.
+                let mut hashes = vec![];
 
-                        // Get all post hashes matching the request parameters.
-                        let mut stream = self.store.get_post_hashes(opts).await?;
-                        while let Some(result) = stream.next().await {
-                            hashes.push(result?);
-                            // Break once the request limit has been reached.
-                            if hashes.len() as u64 >= limit {
-                                break;
+                match live_request {
+                    LiveRequest::ChannelState(req_id, req_channel) => {
+                        // Only send hashes if the channel of the post which invoked
+                        // the call to `send_post_hashes()` matches the channel of
+                        // the peer request.
+                        if req_channel == channel {
+                            // Return all channel state post hashes for this channel.
+                            let mut channel_membership_hashes =
+                                self.store.get_channel_membership_hashes(channel).await?;
+                            hashes.append(&mut channel_membership_hashes);
+
+                            // Return the channel topic post hash for this channel.
+                            let channel_topic_hash =
+                                self.store.get_channel_topic_and_hash(channel).await?;
+                            if let Some((_topic, hash)) = channel_topic_hash {
+                                hashes.push(hash)
                             }
+
+                            // Retrieve public keys of all channel members.
+                            let channel_members = self.store.get_channel_members(channel).await?;
+                            for public_key in channel_members {
+                                // Return all delete post hashes for members of
+                                // this channel.
+                                let peer_delete_hashes =
+                                    self.store.get_delete_hashes(&public_key).await;
+                                hashes.extend(peer_delete_hashes);
+
+                                // Send the most-recent name-setting info
+                                // post hash for each peer.
+                                if let Some((_peer_name, peer_name_hash)) =
+                                    self.store.get_peer_name_and_hash(&public_key).await
+                                {
+                                    hashes.push(peer_name_hash)
+                                }
+                            }
+
+                            // Retrieve public keys of all ex-channel members.
+                            let ex_channel_members =
+                                self.store.get_ex_channel_members(channel).await?;
+                            for public_key in ex_channel_members {
+                                // Send the most-recent name-setting info
+                                // post hash for each peer.
+                                if let Some((_peer_name, peer_name_hash)) =
+                                    self.store.get_peer_name_and_hash(&public_key).await
+                                {
+                                    hashes.push(peer_name_hash)
+                                }
+                            }
+
+                            // Construct a new hash response message.
+                            let response = Message::hash_response(NO_CIRCUIT, *req_id, hashes);
+
+                            // Send the response to the peer.
+                            self.send(*peer_id, &response).await?;
                         }
-                        // Drop the mutable borrow of `self` to allow the later
-                        // call to `self.send()` (immutable borrow).
-                        drop(stream);
+                    }
+                    LiveRequest::ChannelTimeRange(req_id, channel_opts) => {
+                        // Only send hashes if the channel of the post which invoked
+                        // the call to `send_post_hashes()` matches the channel of
+                        // the peer request.
+                        if &channel_opts.channel == channel {
+                            let limit = channel_opts.limit.min(4096);
 
-                        // Construct a new hash response message.
-                        let response = Message::hash_response(NO_CIRCUIT, *req_id, hashes);
+                            // Get all post hashes matching the request parameters.
+                            let mut stream = self.store.get_post_hashes(channel_opts).await?;
+                            while let Some(result) = stream.next().await {
+                                hashes.push(result?);
+                                // Break once the request limit has been reached.
+                                if hashes.len() as u64 >= limit {
+                                    break;
+                                }
+                            }
+                            // Drop the mutable borrow of `self` to allow the later
+                            // call to `self.send()` (immutable borrow).
+                            drop(stream);
 
-                        // Send the response to the peer.
-                        self.send(*peer_id, &response).await?;
+                            // Construct a new hash response message.
+                            let response = Message::hash_response(NO_CIRCUIT, *req_id, hashes);
+
+                            // Send the response to the peer.
+                            self.send(*peer_id, &response).await?;
+                        }
                     }
                 }
             }
@@ -315,10 +453,16 @@ where
             req_id,
         } = msg.header;
 
-        // Ignore this message if the request ID matches one we already
-        // know about.
-        if self.handled_requests.read().await.contains(&req_id) {
-            debug!("Dropping message from handler; request ID has been seen before");
+        // Ignore this message if the request ID has previously been handled
+        // and it is not an active live request or outbound request.
+        if self.handled_requests.read().await.contains(&req_id)
+            && !self.is_live_request(&peer_id, &req_id).await
+            && !self.outbound_requests.read().await.contains_key(&req_id)
+        {
+            debug!(
+                "Dropping message from handler; request ID has been seen before: {}",
+                msg.header
+            );
 
             return Ok(());
         }
@@ -351,13 +495,7 @@ where
                     self.decrement_ttl_and_write_to_outbound(req_id, msg).await;
 
                     // Remove the request from the map of live requests.
-                    let mut live_requests = self.live_requests.write().await;
-                    if let Some(peer_requests) = live_requests.get_mut(&peer_id) {
-                        // Iterate over the peer requests and retain only the
-                        // requests for which the ID does not match the given
-                        // cancel ID.
-                        peer_requests.retain(|(id, _opts)| id != cancel_id);
-                    }
+                    self.remove_live_request(&peer_id, cancel_id).await?;
 
                     // Remove the request from the list of outbound requests.
                     // The associated message will no longer be sent to peers.
@@ -375,12 +513,12 @@ where
                         self.decrement_ttl_and_write_to_outbound(req_id, msg).await;
                     }
 
-                    let opts = ChannelOptions::new(channel, *time_start, *time_end, *limit);
+                    let channel_opts = ChannelOptions::new(channel, *time_start, *time_end, *limit);
                     let n_limit = (*limit).min(4096);
 
                     let mut hashes = vec![];
                     // Create a stream of post hashes matching the given criteria.
-                    let mut stream = self.store.get_post_hashes(&opts).await?;
+                    let mut stream = self.store.get_post_hashes(&channel_opts).await?;
                     // Iterate over the hashes in the stream.
                     while let Some(result) = stream.next().await {
                         hashes.push(result?);
@@ -399,25 +537,56 @@ where
                     // the end time has been set to 0 (i.e. keep this request
                     // alive and send new messages as they become available).
                     if *time_end == 0 {
+                        let live_request = LiveRequest::ChannelTimeRange(req_id, channel_opts);
+
                         let mut live_requests = self.live_requests.write().await;
                         if let Some(peer_requests) = live_requests.get_mut(&peer_id) {
-                            peer_requests.push((req_id, opts));
+                            peer_requests.push(live_request);
                         } else {
-                            live_requests.insert(peer_id, vec![(req_id, opts)]);
+                            live_requests.insert(peer_id, vec![live_request]);
                         }
                     }
 
                     self.send(peer_id, &response).await?;
                 }
-                RequestBody::ChannelState {
-                    channel: _,
-                    future: _,
-                } => {
+                RequestBody::ChannelState { channel, future } => {
                     debug!("Handling channel state request...");
 
                     if *ttl > 0 {
                         self.decrement_ttl_and_write_to_outbound(req_id, msg).await;
                     }
+
+                    // Get the hash of the latest join or leave post for all
+                    // channel members and ex-members.
+                    let mut channel_membership_hashes =
+                        self.store.get_channel_membership_hashes(channel).await?;
+
+                    // If a topic has been set for the channel, return the hash
+                    // of the post.
+                    if let Some(topic_and_hash) =
+                        self.store.get_channel_topic_and_hash(channel).await?
+                    {
+                        channel_membership_hashes.push(topic_and_hash.1)
+                    }
+
+                    let response =
+                        Message::hash_response(circuit_id, req_id, channel_membership_hashes);
+
+                    // Add the peer and request ID to the request tracker if
+                    // the future field has been set to 1 (i.e. keep this request
+                    // alive and send new messages as they become available).
+                    if *future == 1 {
+                        let live_request = LiveRequest::ChannelState(req_id, channel.to_string());
+
+                        let mut live_requests = self.live_requests.write().await;
+                        if let Some(peer_requests) = live_requests.get_mut(&peer_id) {
+                            peer_requests.push(live_request);
+                        } else {
+                            live_requests.insert(peer_id, vec![live_request]);
+                        }
+                    }
+
+                    self.send(peer_id, &response).await?
 
                     /*
                     TODO: We will require channel state indexes before this
@@ -428,20 +597,6 @@ where
                     The latest post/info post of all members and ex-members.
                     The latest of all users' post/join or post/leave posts to the channel.
                     The latest post/topic post made to the channel.
-                    */
-
-                    /*
-                    // Add the peer and request ID to the request tracker if
-                    // the future field has been set to 1 (i.e. keep this request
-                    // alive and send new messages as they become available).
-                    if *future == 1 {
-                        let mut live_requests = self.live_requests.write().await;
-                        if let Some(peer_requests) = live_requests.get_mut(&peer_id) {
-                            peer_requests.push((req_id, opts));
-                        } else {
-                            live_requests.insert(peer_id, vec![(req_id, opts)]);
-                        }
-                    }
                     */
                 }
                 RequestBody::ChannelList { skip, limit } => {
@@ -530,6 +685,15 @@ where
 
                         let post_hash = post.hash()?;
 
+                        let deleted_posts = self.deleted_posts.read().await;
+                        // Check if a delete post has previously been
+                        // encountered which references this post hash.
+                        if deleted_posts.contains(&post_hash) {
+                            // Skip processing this post so that we do not add
+                            // it to the local store.
+                            continue;
+                        }
+
                         let mut requested_posts = self.requested_posts.write().await;
                         // Check if this post was previously requested.
                         if !requested_posts.contains(&post_hash) {
@@ -539,11 +703,6 @@ where
                         // Remove the post hash from the list of requested
                         // posts.
                         requested_posts.remove(&post_hash);
-
-                        // TODO: Hand the post over to an indexer.
-                        // The indexer will be responsible for matching on
-                        // the post type, extracting key info and indexing it
-                        // in the store.
 
                         self.store.insert_post(&post).await?;
                     }
@@ -600,28 +759,40 @@ where
         Ok(peer_id)
     }
 
-    /// Create a channel time range request matching the given channel
-    /// parameters and broadcast it to all peers, listening for responses.
+    /// Create a channel time range request and a channel state request matching
+    /// the given channel parameters and broadcast them to all peers, listening
+    /// for responses.
     pub async fn open_channel(
         &mut self,
         channel_opts: &ChannelOptions,
     ) -> Result<PostStream<'_>, Error> {
         debug!("Opening {}", channel_opts);
 
-        let (_req_id, req_id_bytes) = self.new_req_id().await?;
+        let channel = channel_opts.channel.to_owned();
+        let future = 1;
 
+        // Create and broadcast a channel time range request.
+        let (_req_id, req_id_bytes) = self.new_req_id().await?;
         let request = Message::channel_time_range_request(
             NO_CIRCUIT,
             req_id_bytes,
             TTL,
             channel_opts.to_owned(),
         );
-
         self.outbound_requests
             .write()
             .await
             .insert(req_id_bytes, (RequestOrigin::Local, request.clone()));
+        self.broadcast(&request).await?;
 
+        // Create and broadcast a channel state request.
+        let (_req_id, req_id_bytes) = self.new_req_id().await?;
+        let request =
+            Message::channel_state_request(NO_CIRCUIT, req_id_bytes, TTL, channel, future);
+        self.outbound_requests
+            .write()
+            .await
+            .insert(req_id_bytes, (RequestOrigin::Local, request.clone()));
         self.broadcast(&request).await?;
 
         self.store.get_posts_live(channel_opts).await
@@ -631,8 +802,7 @@ where
     /// requests originating locally and matching the given channel name.
     /// Broadcast the cancel request(s) to all peers.
     pub async fn close_channel(&self, channel: &String) -> Result<(), Error> {
-        debug!("Closing channel: {}", channel);
-
+        debug!("Closing channel {}", channel);
         let close_channel = channel;
 
         let mut outbound_requests = self.outbound_requests.write().await;
@@ -657,17 +827,8 @@ where
 
         for channel_req_id in channel_req_ids {
             let (_req_id, req_id_bytes) = self.new_req_id().await?;
-
             let request = Message::cancel_request(NO_CIRCUIT, req_id_bytes, TTL, channel_req_id);
-
-            // TODO: Do we really want to store a cancel request?
-            self.outbound_requests
-                .write()
-                .await
-                .insert(req_id_bytes, (RequestOrigin::Local, request.clone()));
-
             self.broadcast(&request).await?;
-
             outbound_requests.remove(&channel_req_id);
         }
 
