@@ -60,7 +60,7 @@ use async_std::{
 use cable::{
     constants::{HASH_RESPONSE, NO_CIRCUIT},
     message::{MessageBody, ResponseBody},
-    ChannelOptions, Error, Message,
+    Error, Message,
 };
 use desert::{FromBytes, ToBytes};
 use futures::{AsyncReadExt, AsyncWriteExt};
@@ -78,14 +78,6 @@ const TTL: u8 = 1;
 // test run.
 fn init() {
     let _ = env_logger::builder().is_test(false).try_init();
-}
-
-// Get the current system time in seconds since the UNIX epoch.
-fn now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
 }
 
 #[async_std::test]
