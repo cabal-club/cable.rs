@@ -34,15 +34,7 @@ pub type Keypair = ([u8; 32], [u8; 64]);
 /// The key is an `Option` to allow for storage and retrieved of post types
 /// which do not have an associated channel; these posts are stored with a
 /// key of `None`.
-//pub type PostMap = HashMap<Channel, BTreeMap<u64, Vec<(Post, Hash)>>>;
 pub type PostMap = HashMap<Option<Channel>, BTreeMap<u64, Vec<(Post, Hash)>>>;
-
-/*
-/// A `HashMap` of post hashes with a key of channel name and a value of a
-/// `BTreeMap`. The `BTreeMap` has a key of timestamp and value of a `Vec`
-/// of post hashes.
-pub type PostHashMap = HashMap<Channel, BTreeMap<u64, Vec<Hash>>>;
-*/
 
 /// A `HashMap` of live streams with a key of channel name and a value
 /// of a `Vec` of streams (wrapped in an `Arc` and `RwLock`).
@@ -65,24 +57,24 @@ pub type NameHashMap = HashMap<PublicKey, BTreeMap<Timestamp, (Nickname, Hash)>>
 /// keypairs, hashes and posts.
 pub trait Store: Clone + Send + Sync + Unpin + 'static {
     /// Retrieve the keypair associated with the store.
-    async fn get_keypair(&mut self) -> Result<Option<Keypair>, Error>;
+    async fn get_keypair(&mut self) -> Option<Keypair>;
 
     /// Define the keypair associated with the store.
-    async fn set_keypair(&mut self, keypair: Keypair) -> Result<(), Error>;
+    async fn set_keypair(&mut self, keypair: Keypair);
 
     /// Retrieve the keypair associated with the store, creating a new keypair
     /// if one does not yet exist.
-    async fn get_or_create_keypair(&mut self) -> Result<Keypair, Error> {
-        if let Some(kp) = self.get_keypair().await? {
-            Ok(kp)
+    async fn get_or_create_keypair(&mut self) -> Keypair {
+        if let Some(kp) = self.get_keypair().await {
+            kp
         } else {
             let (pk, sk) = crypto::sign::gen_keypair();
             let kp = (
                 pk.as_ref().try_into().unwrap(),
                 sk.as_ref().try_into().unwrap(),
             );
-            self.set_keypair(kp).await?;
-            Ok(kp)
+            self.set_keypair(kp).await;
+            kp
         }
     }
 
@@ -95,61 +87,36 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
     async fn get_latest_hashes(&mut self, channel: &Channel) -> Option<Vec<Hash>>;
 
     /// Insert the given channel into the store.
-    async fn insert_channel(&mut self, channel: &Channel) -> Result<(), Error>;
+    async fn insert_channel(&mut self, channel: &Channel);
 
     /// Retrieve all channels from the store.
-    async fn get_channels<'a>(&'a mut self) -> Result<Vec<Channel>, Error>;
+    async fn get_channels<'a>(&'a mut self) -> Option<Vec<Channel>>;
 
     /// Insert the given public key into the store using the key defined by the
     /// given channel.
-    async fn insert_channel_member(
-        &mut self,
-        channel: &Channel,
-        public_key: &PublicKey,
-    ) -> Result<(), Error>;
+    async fn insert_channel_member(&mut self, channel: &Channel, public_key: &PublicKey);
 
     /// Remove the given public key from the membership store using the key
     /// defined by the given channel.
-    async fn remove_channel_member(
-        &mut self,
-        channel: &Channel,
-        public_key: &PublicKey,
-    ) -> Result<(), Error>;
+    async fn remove_channel_member(&mut self, channel: &Channel, public_key: &PublicKey);
 
     /// Query whether the given public key is a member of the given channel.
-    async fn is_channel_member<'a>(
-        &'a mut self,
-        channel: &Channel,
-        public_key: &PublicKey,
-    ) -> Result<bool, Error>;
+    async fn is_channel_member<'a>(&'a mut self, channel: &Channel, public_key: &PublicKey)
+        -> bool;
 
     /// Retrieve all members of the given channel.
-    async fn get_channel_members<'a>(
-        &'a mut self,
-        channel: &Channel,
-    ) -> Result<Vec<PublicKey>, Error>;
+    async fn get_channel_members<'a>(&'a mut self, channel: &Channel) -> Option<Vec<PublicKey>>;
 
     /// Insert the given public key into the store using the key defined by the
     /// given channel.
-    async fn insert_ex_channel_member(
-        &mut self,
-        channel: &Channel,
-        public_key: &PublicKey,
-    ) -> Result<(), Error>;
+    async fn insert_ex_channel_member(&mut self, channel: &Channel, public_key: &PublicKey);
 
     /// Remove the given public key from the ex-membership store using the key
     /// defined by the given channel.
-    async fn remove_ex_channel_member(
-        &mut self,
-        channel: &Channel,
-        public_key: &PublicKey,
-    ) -> Result<(), Error>;
+    async fn remove_ex_channel_member(&mut self, channel: &Channel, public_key: &PublicKey);
 
     /// Retrieve all ex-members of the given channel.
-    async fn get_ex_channel_members<'a>(
-        &'a mut self,
-        channel: &Channel,
-    ) -> Result<Vec<PublicKey>, Error>;
+    async fn get_ex_channel_members<'a>(&'a mut self, channel: &Channel) -> Option<Vec<PublicKey>>;
 
     /// Update the membership store with the hash of the latest `post/join` or
     /// `post/leave` post made to the given channel by the given public key.
@@ -158,18 +125,17 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
         channel: &Channel,
         public_key: &PublicKey,
         hash: &Hash,
-    ) -> Result<(), Error>;
+    );
 
-    // TODO: Consider returning a `HashStream` instead of a vector.
     /// Retrieve all of the latest `post/join` or `post/leave` post hashes
     /// for the given channel.
     async fn get_channel_membership_hashes<'a>(
         &'a mut self,
         channel: &Channel,
-    ) -> Result<Vec<Hash>, Error>;
+    ) -> Option<Vec<Hash>>;
 
     /// Remove the channel membership data for the given post hash.
-    async fn remove_channel_membership_hash(&mut self, hash: &Hash) -> Result<(), Error>;
+    async fn remove_channel_membership_hash(&mut self, hash: &Hash);
 
     /// Insert the given channel topic, timestamp and hash into the store if
     /// the timestamp is later than the timestamp of the stored topic post.
@@ -179,29 +145,16 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
         topic: &Topic,
         timestamp: &Timestamp,
         hash: &Hash,
-    ) -> Result<(), Error>;
+    );
 
     /// Remove the channel topic data for the given post hash.
-    async fn remove_channel_topic(&mut self, hash: &Hash) -> Result<(), Error>;
+    async fn remove_channel_topic(&mut self, hash: &Hash);
 
     /// Retrieve the latest `post/topic` topic and hash for the given channel.
     async fn get_channel_topic_and_hash<'a>(
         &'a mut self,
         channel: &Channel,
-    ) -> Result<Option<(Topic, Hash)>, Error>;
-
-    /*
-    /// Insert the given hash into the store using the key defined by the
-    /// given public key.
-    async fn insert_latest_join_or_leave_post_hash(
-        &mut self,
-        public_key: &PublicKey,
-        hash: Hash,
-    ) -> Result<(), Error>;
-
-    /// Retrieve the latest join or leave post hash for all known peers.
-    async fn get_latest_join_or_leave_post_hashes<'a>(&'a mut self) -> Result<Vec<Hash>, Error>;
-    */
+    ) -> Option<(Topic, Hash)>;
 
     /// Insert the given delete post hash into the store using the key defined
     /// by the given public key.
@@ -209,7 +162,7 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
 
     /// Retrieve the hashes of all known delete posts authored by the given
     /// public key.
-    async fn get_delete_hashes(&mut self, public_key: &PublicKey) -> Vec<Hash>;
+    async fn get_delete_hashes(&mut self, public_key: &PublicKey) -> Option<Vec<Hash>>;
 
     /// Insert the given info post hash into the store using the key defined by
     /// the given public key.
@@ -220,7 +173,7 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
 
     /// Retrieve the hashes of all known info posts authored by the given
     /// public key.
-    async fn get_info_hashes(&mut self, public_key: &PublicKey) -> Vec<Hash>;
+    async fn get_info_hashes(&mut self, public_key: &PublicKey) -> Option<Vec<Hash>>;
 
     /// Send the given post to each live stream for which the channel option
     /// criteria are satisfied.
@@ -249,13 +202,13 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
     async fn insert_post_payload(&mut self, hash: &Hash, payload: Payload);
 
     /// Remove the given post from the posts and post hashes stores.
-    async fn remove_post(&mut self, hash: &Hash) -> Result<(), Error>;
+    async fn remove_post(&mut self, hash: &Hash);
 
     /// Delete the given post from all stores, leaving no trace.
     ///
     /// This method combines several removal methods to achieve complete
     /// removal of the post.
-    async fn delete_post(&mut self, hash: &Hash) -> Result<(), Error>;
+    async fn delete_post(&mut self, hash: &Hash);
 
     /// Update the posts store by inserting the given post.
     ///
@@ -272,22 +225,22 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
 
     /// Retrieve all posts matching the parameters defined by the given
     /// `ChannelOptions`.
-    async fn get_posts<'a>(&'a mut self, opts: &ChannelOptions) -> Result<PostStream, Error>;
+    async fn get_posts<'a>(&'a mut self, opts: &ChannelOptions) -> PostStream;
 
     /// Retrieve all posts matching the parameters defined by the given
     /// `ChannelOptions` and continue to return new messages as they become
     /// available (stream remains active).
-    async fn get_posts_live<'a>(&'a mut self, opts: &ChannelOptions) -> Result<PostStream, Error>;
+    async fn get_posts_live<'a>(&'a mut self, opts: &ChannelOptions) -> PostStream;
 
     /// Retrieve the hashes of all posts matching the parameters defined by the
     /// given `ChannelOptions`.
-    async fn get_post_hashes<'a>(&'a mut self, opts: &ChannelOptions) -> Result<HashStream, Error>;
+    async fn get_post_hashes<'a>(&'a mut self, opts: &ChannelOptions) -> HashStream;
 
     /// Retrieve the post payload for the post represented by the given hash.
     async fn get_post_payload(&mut self, hash: &Hash) -> Option<Payload>;
 
     /// Retrieve the post payloads for all posts represented by the given hashes.
-    async fn get_post_payloads(&mut self, hashes: &[Hash]) -> Result<Vec<Payload>, Error>;
+    async fn get_post_payloads(&mut self, hashes: &[Hash]) -> Vec<Payload>;
 
     /// Remove the given post from the post payloads store.
     async fn remove_post_payload(&mut self, hash: &Hash);
@@ -295,7 +248,7 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
     /// Retrieve the hashes of all posts representing the subset of the given
     /// hashes for which post data is not available locally (ie. the hashes of
     /// all posts which are not already in the store).
-    async fn want(&mut self, hashes: &[Hash]) -> Result<Vec<Hash>, Error>;
+    async fn want(&mut self, hashes: &[Hash]) -> Vec<Hash>;
 }
 
 #[derive(Clone)]
@@ -377,14 +330,12 @@ impl Default for MemoryStore {
 
 #[async_trait::async_trait]
 impl Store for MemoryStore {
-    async fn get_keypair(&mut self) -> Result<Option<Keypair>, Error> {
-        Ok(Some(self.keypair))
+    async fn get_keypair(&mut self) -> Option<Keypair> {
+        Some(self.keypair)
     }
 
-    async fn set_keypair(&mut self, keypair: Keypair) -> Result<(), Error> {
+    async fn set_keypair(&mut self, keypair: Keypair) {
         self.keypair = keypair;
-
-        Ok(())
     }
 
     async fn get_latest_hashes(&mut self, channel: &Channel) -> Option<Vec<Hash>> {
@@ -406,25 +357,22 @@ impl Store for MemoryStore {
         }
     }
 
-    async fn insert_channel(&mut self, channel: &Channel) -> Result<(), Error> {
-        // Open the channel store for writing.
+    async fn insert_channel(&mut self, channel: &Channel) {
         let mut channel_store = self.channels.write().await;
         channel_store.insert(channel.to_owned());
-
-        Ok(())
     }
 
-    async fn get_channels(&mut self) -> Result<Vec<Channel>, Error> {
-        let channels = self.channels.read().await.iter().cloned().collect();
+    async fn get_channels(&mut self) -> Option<Vec<Channel>> {
+        let channels = self.channels.read().await;
 
-        Ok(channels)
+        if channels.is_empty() {
+            None
+        } else {
+            Some(channels.iter().cloned().collect())
+        }
     }
 
-    async fn insert_channel_member(
-        &mut self,
-        channel: &Channel,
-        public_key: &PublicKey,
-    ) -> Result<(), Error> {
+    async fn insert_channel_member(&mut self, channel: &Channel, public_key: &PublicKey) {
         // Open the channel members store for writing.
         let mut channel_members = self.channel_members.write().await;
         // Retrieve the stored members matching the given channel.
@@ -437,15 +385,9 @@ impl Store for MemoryStore {
             // given public key to create the value vec.
             channel_members.insert(channel.to_owned(), vec![*public_key]);
         }
-
-        Ok(())
     }
 
-    async fn remove_channel_member(
-        &mut self,
-        channel: &Channel,
-        public_key: &PublicKey,
-    ) -> Result<(), Error> {
+    async fn remove_channel_member(&mut self, channel: &Channel, public_key: &PublicKey) {
         // Open the channel members store for writing.
         let mut channel_members = self.channel_members.write().await;
         // Retrieve the stored members matching the given channel.
@@ -454,29 +396,17 @@ impl Store for MemoryStore {
             // member does not match the given public key.
             members.retain(|member| member != public_key);
         }
-
-        Ok(())
     }
 
-    async fn get_channel_members(&mut self, channel: &Channel) -> Result<Vec<PublicKey>, Error> {
-        let channel_members = self
-            .channel_members
+    async fn get_channel_members(&mut self, channel: &Channel) -> Option<Vec<PublicKey>> {
+        self.channel_members
             .read()
             .await
             .get(channel)
             .map(|member| member.to_owned())
-            // Return an empty vector if no members are found matching the
-            // given channel.
-            .unwrap_or(Vec::new());
-
-        Ok(channel_members)
     }
 
-    async fn insert_ex_channel_member(
-        &mut self,
-        channel: &Channel,
-        public_key: &PublicKey,
-    ) -> Result<(), Error> {
+    async fn insert_ex_channel_member(&mut self, channel: &Channel, public_key: &PublicKey) {
         // Open the ex-channel members store for writing.
         let mut ex_channel_members = self.ex_channel_members.write().await;
         // Retrieve the stored ex-members matching the given channel.
@@ -489,15 +419,9 @@ impl Store for MemoryStore {
             // given public key to create the value vec.
             ex_channel_members.insert(channel.to_owned(), vec![*public_key]);
         }
-
-        Ok(())
     }
 
-    async fn remove_ex_channel_member(
-        &mut self,
-        channel: &Channel,
-        public_key: &PublicKey,
-    ) -> Result<(), Error> {
+    async fn remove_ex_channel_member(&mut self, channel: &Channel, public_key: &PublicKey) {
         // Open the ex-channel members store for writing.
         let mut ex_channel_members = self.ex_channel_members.write().await;
         // Retrieve the stored ex-members matching the given channel.
@@ -506,32 +430,22 @@ impl Store for MemoryStore {
             // member does not match the given public key.
             ex_members.retain(|ex_member| ex_member != public_key);
         }
-
-        Ok(())
     }
 
-    async fn get_ex_channel_members(&mut self, channel: &Channel) -> Result<Vec<PublicKey>, Error> {
-        let ex_channel_members = self
-            .ex_channel_members
+    async fn get_ex_channel_members(&mut self, channel: &Channel) -> Option<Vec<PublicKey>> {
+        self.ex_channel_members
             .read()
             .await
             .get(channel)
             .map(|member| member.to_owned())
-            // Return an empty vector if no members are found matching the
-            // given channel.
-            .unwrap_or(Vec::new());
-
-        Ok(ex_channel_members)
     }
 
-    async fn is_channel_member(
-        &mut self,
-        channel: &Channel,
-        public_key: &PublicKey,
-    ) -> Result<bool, Error> {
-        let channel_members = self.get_channel_members(channel).await?;
-
-        Ok(channel_members.contains(public_key))
+    async fn is_channel_member(&mut self, channel: &Channel, public_key: &PublicKey) -> bool {
+        if let Some(channel_members) = self.get_channel_members(channel).await {
+            channel_members.contains(public_key)
+        } else {
+            false
+        }
     }
 
     async fn update_channel_membership_hashes(
@@ -539,7 +453,7 @@ impl Store for MemoryStore {
         channel: &Channel,
         public_key: &PublicKey,
         hash: &Hash,
-    ) -> Result<(), Error> {
+    ) {
         // Open the channel members store for writing.
         let mut channel_membership = self.channel_membership.write().await;
         // Retrieve the stored public key / hash hash map matching the given
@@ -558,31 +472,23 @@ impl Store for MemoryStore {
             // Insert the members hash map into the channel membership hash map.
             channel_membership.insert(channel.to_owned(), membership_map);
         }
-
-        Ok(())
     }
 
-    async fn get_channel_membership_hashes(
-        &mut self,
-        channel: &Channel,
-    ) -> Result<Vec<Hash>, Error> {
-        let channel_membership: Vec<Hash> = self
-            .channel_membership
+    async fn get_channel_membership_hashes(&mut self, channel: &Channel) -> Option<Vec<Hash>> {
+        self.channel_membership
             .read()
             .await
             .get(channel)
-            // Return an empty map if no posts are found matching the given
-            // channel.
-            .unwrap_or(&HashMap::new())
-            // Retrieve the hash for each entry in the hash map.
-            .values()
-            .cloned()
-            .collect();
-
-        Ok(channel_membership)
+            .map(|members| {
+                members
+                    // Retrieve the hash for each entry in the hash map.
+                    .values()
+                    .cloned()
+                    .collect()
+            })
     }
 
-    async fn remove_channel_membership_hash(&mut self, hash: &Hash) -> Result<(), Error> {
+    async fn remove_channel_membership_hash(&mut self, hash: &Hash) {
         // Open the channel membership store for writing.
         let mut channel_membership = self.channel_membership.write().await;
 
@@ -596,8 +502,6 @@ impl Store for MemoryStore {
                 // or leave post matches the given hash.
                 membership_map.retain(|_public_key, stored_hash| stored_hash != hash)
             });
-
-        Ok(())
     }
 
     async fn insert_channel_topic(
@@ -606,7 +510,7 @@ impl Store for MemoryStore {
         topic: &Topic,
         timestamp: &Timestamp,
         hash: &Hash,
-    ) -> Result<(), Error> {
+    ) {
         // Open the channel topics store for writing.
         let mut channel_topics = self.channel_topics.write().await;
         // Retrieve the stored tuple of topic, timestamp and hash matching the
@@ -627,11 +531,9 @@ impl Store for MemoryStore {
             // using the channel name as the key.
             channel_topics.insert(channel.to_owned(), topic_map);
         }
-
-        Ok(())
     }
 
-    async fn remove_channel_topic(&mut self, hash: &Hash) -> Result<(), Error> {
+    async fn remove_channel_topic(&mut self, hash: &Hash) {
         // Open the channel topics store for writing.
         let mut channel_topics = self.channel_topics.write().await;
 
@@ -643,17 +545,13 @@ impl Store for MemoryStore {
             // post matches the given hash.
             topic_map.retain(|_timestamp, (_topic, stored_hash)| stored_hash != hash)
         });
-
-        Ok(())
     }
 
-    // TODO: Remove unnecessary `Result` return type.
     async fn get_channel_topic_and_hash<'a>(
         &'a mut self,
         channel: &Channel,
-    ) -> Result<Option<(Topic, Hash)>, Error> {
-        let channel_topic = self
-            .channel_topics
+    ) -> Option<(Topic, Hash)> {
+        self.channel_topics
             .read()
             .await
             .get(channel)
@@ -663,9 +561,7 @@ impl Store for MemoryStore {
                     .last_key_value()
                     // Ignore the key (timestamp); return the topic and hash.
                     .map(|(_, (topic, hash))| (topic.to_owned(), hash.to_owned()))
-            });
-
-        Ok(channel_topic)
+            })
     }
 
     /*
@@ -709,13 +605,12 @@ impl Store for MemoryStore {
         }
     }
 
-    async fn get_delete_hashes(&mut self, public_key: &PublicKey) -> Vec<Hash> {
+    async fn get_delete_hashes(&mut self, public_key: &PublicKey) -> Option<Vec<Hash>> {
         self.delete_hashes
             .read()
             .await
             .get(public_key)
             .map(|hashes| hashes.to_owned())
-            .unwrap_or(Vec::new())
     }
 
     async fn insert_info_hash(&mut self, public_key: &PublicKey, hash: &Hash) {
@@ -733,13 +628,12 @@ impl Store for MemoryStore {
         }
     }
 
-    async fn get_info_hashes(&mut self, public_key: &PublicKey) -> Vec<Hash> {
+    async fn get_info_hashes(&mut self, public_key: &PublicKey) -> Option<Vec<Hash>> {
         self.info_hashes
             .read()
             .await
             .get(public_key)
             .map(|hashes| hashes.to_owned())
-            .unwrap_or(Vec::new())
     }
 
     async fn remove_info_hash(&mut self, hash: &Hash) {
@@ -872,18 +766,18 @@ impl Store for MemoryStore {
                 let public_key = &post.get_public_key();
 
                 self.update_channel_membership_hashes(channel, public_key, &hash)
-                    .await?;
-                self.insert_channel_member(channel, public_key).await?;
-                self.remove_ex_channel_member(channel, public_key).await?;
+                    .await;
+                self.insert_channel_member(channel, public_key).await;
+                self.remove_ex_channel_member(channel, public_key).await;
                 self.insert_post_payload(&hash, post.to_bytes()?).await;
             }
             PostBody::Leave { channel } => {
                 let public_key = &post.get_public_key();
 
                 self.update_channel_membership_hashes(channel, public_key, &hash)
-                    .await?;
-                self.remove_channel_member(channel, public_key).await?;
-                self.insert_ex_channel_member(channel, public_key).await?;
+                    .await;
+                self.remove_channel_member(channel, public_key).await;
+                self.insert_ex_channel_member(channel, public_key).await;
                 self.insert_post_payload(&hash, post.to_bytes()?).await;
             }
             PostBody::Topic { channel, topic } => {
@@ -891,7 +785,7 @@ impl Store for MemoryStore {
                 self.update_posts(post, Some(channel.to_owned()), timestamp, hash)
                     .await;
                 self.insert_channel_topic(channel, topic, timestamp, &hash)
-                    .await?;
+                    .await;
                 self.insert_post_payload(&hash, post.to_bytes()?).await;
                 self.send_post_to_live_streams(post, channel).await;
             }
@@ -908,7 +802,7 @@ impl Store for MemoryStore {
                         // author of the `post/delete` post.
                         if post.get_public_key() == stored_post.get_public_key() {
                             // Delete the post from all stores.
-                            self.delete_post(post_hash).await?;
+                            self.delete_post(post_hash).await;
                             // The hash of the `post/delete` post is inserted,
                             // not the hash of the post referenced by the
                             // `post/delete` post.
@@ -936,7 +830,6 @@ impl Store for MemoryStore {
 
                 self.insert_info_hash(public_key, &hash).await;
                 self.insert_post_payload(&hash, post.to_bytes()?).await;
-                //self.send_post_to_live_streams(post, None).await;
             }
             _ => {}
         }
@@ -945,7 +838,7 @@ impl Store for MemoryStore {
 
         // Update the store of known channels.
         if let Some(channel) = channel {
-            self.insert_channel(channel).await?;
+            self.insert_channel(channel).await;
         }
 
         Ok(hash)
@@ -955,7 +848,7 @@ impl Store for MemoryStore {
         self.post_payloads.write().await.insert(*hash, payload);
     }
 
-    async fn remove_post(&mut self, hash: &Hash) -> Result<(), Error> {
+    async fn remove_post(&mut self, hash: &Hash) {
         // Open the post store for writing.
         let mut posts = self.posts.write().await;
 
@@ -970,8 +863,6 @@ impl Store for MemoryStore {
                 post_vec.retain(|(_post, stored_hash)| stored_hash != hash)
             })
         });
-
-        Ok(())
     }
 
     async fn remove_post_payload(&mut self, hash: &Hash) {
@@ -983,19 +874,17 @@ impl Store for MemoryStore {
         post_payloads.retain(|stored_hash, _payload| stored_hash != hash);
     }
 
-    async fn delete_post(&mut self, hash: &Hash) -> Result<(), Error> {
+    async fn delete_post(&mut self, hash: &Hash) {
         // Remove post from all stores.
-        self.remove_channel_topic(hash).await?;
-        self.remove_channel_membership_hash(hash).await?;
+        self.remove_channel_topic(hash).await;
+        self.remove_channel_membership_hash(hash).await;
         self.remove_peer_name(hash).await;
         self.remove_info_hash(hash).await;
-        self.remove_post(hash).await?;
+        self.remove_post(hash).await;
         self.remove_post_payload(hash).await;
-
-        Ok(())
     }
 
-    async fn get_posts(&mut self, opts: &ChannelOptions) -> Result<PostStream, Error> {
+    async fn get_posts(&mut self, opts: &ChannelOptions) -> PostStream {
         // Retrieve all posts matching the given channel options.
         let mut posts = self
             .posts
@@ -1031,12 +920,11 @@ impl Store for MemoryStore {
         // Add the non-channel posts to the channel posts.
         posts.extend(non_channel_posts);
 
-        let post_stream = Box::new(stream::from_iter(posts.into_iter()));
-
-        Ok(post_stream)
+        // Return a post stream.
+        Box::new(stream::from_iter(posts.into_iter()))
     }
 
-    async fn get_posts_live(&mut self, opts: &ChannelOptions) -> Result<PostStream, Error> {
+    async fn get_posts_live(&mut self, opts: &ChannelOptions) -> PostStream {
         let live_stream = {
             let mut live_streams = self.live_streams.write().await;
 
@@ -1085,14 +973,13 @@ impl Store for MemoryStore {
 
         // Retrieve all stored posts matching the channel options,
         // as well as all non-channel posts.
-        let post_stream = self.get_posts(opts).await?;
-        // Merge the existing post stream with the live post stream.
-        let live_post_stream = Box::new(post_stream.merge(live_stream));
+        let post_stream = self.get_posts(opts).await;
 
-        Ok(live_post_stream)
+        // Merge the existing post stream with the live post stream.
+        Box::new(post_stream.merge(live_stream))
     }
 
-    async fn get_post_hashes(&mut self, opts: &ChannelOptions) -> Result<HashStream, Error> {
+    async fn get_post_hashes(&mut self, opts: &ChannelOptions) -> HashStream {
         let start = opts.time_start;
         let end = opts.time_end;
         let empty = self.empty_post_bt.range(..);
@@ -1116,12 +1003,10 @@ impl Store for MemoryStore {
             .flat_map(|(_time, posts)| posts.iter().map(|(_post, hash)| Ok(*hash)))
             .collect::<Vec<Result<Hash, Error>>>();
 
-        let hash_stream = Box::new(stream::from_iter(hashes.into_iter()));
-
-        Ok(hash_stream)
+        // Return a hash stream.
+        Box::new(stream::from_iter(hashes.into_iter()))
     }
 
-    // TODO: Unify API. Only return `Result` where appropriate.
     async fn get_post_payload(&mut self, hash: &Hash) -> Option<Payload> {
         let post_payloads = self.post_payloads.read().await;
         let post_payload = post_payloads.get(hash);
@@ -1129,25 +1014,24 @@ impl Store for MemoryStore {
         post_payload.cloned()
     }
 
-    async fn get_post_payloads(&mut self, hashes: &[Hash]) -> Result<Vec<Payload>, Error> {
+    async fn get_post_payloads(&mut self, hashes: &[Hash]) -> Vec<Payload> {
         let post_payloads = self.post_payloads.read().await;
 
-        Ok(hashes
+        hashes
             .iter()
             .filter_map(|hash| post_payloads.get(hash))
             .cloned()
-            .collect())
+            .collect()
     }
 
-    async fn want(&mut self, hashes: &[Hash]) -> Result<Vec<Hash>, Error> {
+    async fn want(&mut self, hashes: &[Hash]) -> Vec<Hash> {
         let post_payloads = self.post_payloads.read().await;
 
-        let wanted_hashes = hashes
+        // Return the "wanted" hashes.
+        hashes
             .iter()
             .filter(|hash| !post_payloads.contains_key(&(*hash).clone()))
             .cloned()
-            .collect();
-
-        Ok(wanted_hashes)
+            .collect()
     }
 }

@@ -299,10 +299,11 @@ where
             // that any "live" channel state requests for these channels
             // receive the latest `post/info` and `post/delete` hashes.
             let public_key = post.get_public_key();
-            let channels = self.store.get_channels().await?;
-            for channel in channels {
-                if self.store.is_channel_member(&channel, &public_key).await? {
-                    self.send_post_hashes(&channel).await?;
+            if let Some(channels) = self.store.get_channels().await {
+                for channel in channels {
+                    if self.store.is_channel_member(&channel, &public_key).await {
+                        self.send_post_hashes(&channel).await?;
+                    }
                 }
             }
         }
@@ -325,7 +326,7 @@ where
             for live_request in live_requests {
                 // Create an empty vector to store post hashes to be sent
                 // in response.
-                let mut hashes = vec![];
+                let mut hashes = Vec::new();
 
                 match live_request {
                     LiveRequest::ChannelState(req_id, req_channel) => {
@@ -334,45 +335,54 @@ where
                         // the peer request.
                         if req_channel == channel {
                             // Return all channel state post hashes for this channel.
-                            let mut channel_membership_hashes =
-                                self.store.get_channel_membership_hashes(channel).await?;
-                            hashes.append(&mut channel_membership_hashes);
+                            if let Some(mut channel_membership_hashes) =
+                                self.store.get_channel_membership_hashes(channel).await
+                            {
+                                hashes.append(&mut channel_membership_hashes)
+                            }
 
                             // Return the channel topic post hash for this channel.
                             let channel_topic_hash =
-                                self.store.get_channel_topic_and_hash(channel).await?;
+                                self.store.get_channel_topic_and_hash(channel).await;
                             if let Some((_topic, hash)) = channel_topic_hash {
                                 hashes.push(hash)
                             }
 
                             // Retrieve public keys of all channel members.
-                            let channel_members = self.store.get_channel_members(channel).await?;
-                            for public_key in channel_members {
-                                // Return all delete post hashes for members of
-                                // this channel.
-                                let peer_delete_hashes =
-                                    self.store.get_delete_hashes(&public_key).await;
-                                hashes.extend(peer_delete_hashes);
+                            if let Some(channel_members) =
+                                self.store.get_channel_members(channel).await
+                            {
+                                for public_key in channel_members {
+                                    // Return all delete post hashes for members of
+                                    // this channel.
+                                    if let Some(peer_delete_hashes) =
+                                        self.store.get_delete_hashes(&public_key).await
+                                    {
+                                        hashes.extend(peer_delete_hashes)
+                                    }
 
-                                // Send the most-recent name-setting info
-                                // post hash for each peer.
-                                if let Some((_peer_name, peer_name_hash)) =
-                                    self.store.get_peer_name_and_hash(&public_key).await
-                                {
-                                    hashes.push(peer_name_hash)
+                                    // Send the most-recent name-setting info
+                                    // post hash for each peer.
+                                    if let Some((_peer_name, peer_name_hash)) =
+                                        self.store.get_peer_name_and_hash(&public_key).await
+                                    {
+                                        hashes.push(peer_name_hash)
+                                    }
                                 }
                             }
 
                             // Retrieve public keys of all ex-channel members.
-                            let ex_channel_members =
-                                self.store.get_ex_channel_members(channel).await?;
-                            for public_key in ex_channel_members {
-                                // Send the most-recent name-setting info
-                                // post hash for each peer.
-                                if let Some((_peer_name, peer_name_hash)) =
-                                    self.store.get_peer_name_and_hash(&public_key).await
-                                {
-                                    hashes.push(peer_name_hash)
+                            if let Some(ex_channel_members) =
+                                self.store.get_ex_channel_members(channel).await
+                            {
+                                for public_key in ex_channel_members {
+                                    // Send the most-recent name-setting info
+                                    // post hash for each peer.
+                                    if let Some((_peer_name, peer_name_hash)) =
+                                        self.store.get_peer_name_and_hash(&public_key).await
+                                    {
+                                        hashes.push(peer_name_hash)
+                                    }
                                 }
                             }
 
@@ -391,7 +401,7 @@ where
                             let limit = channel_opts.limit.min(4096);
 
                             // Get all post hashes matching the request parameters.
-                            let mut stream = self.store.get_post_hashes(channel_opts).await?;
+                            let mut stream = self.store.get_post_hashes(channel_opts).await;
                             while let Some(result) = stream.next().await {
                                 hashes.push(result?);
                                 // Break once the request limit has been reached.
@@ -482,7 +492,7 @@ where
                         self.decrement_ttl_and_write_to_outbound(req_id, msg).await;
                     }
 
-                    let posts = self.store.get_post_payloads(hashes).await?;
+                    let posts = self.store.get_post_payloads(hashes).await;
                     let response = Message::post_response(circuit_id, req_id, posts);
 
                     self.send(peer_id, &response).await?
@@ -518,7 +528,7 @@ where
 
                     let mut hashes = vec![];
                     // Create a stream of post hashes matching the given criteria.
-                    let mut stream = self.store.get_post_hashes(&channel_opts).await?;
+                    let mut stream = self.store.get_post_hashes(&channel_opts).await;
                     // Iterate over the hashes in the stream.
                     while let Some(result) = stream.next().await {
                         hashes.push(result?);
@@ -556,21 +566,25 @@ where
                         self.decrement_ttl_and_write_to_outbound(req_id, msg).await;
                     }
 
+                    let mut hashes = Vec::new();
+
                     // Get the hash of the latest join or leave post for all
                     // channel members and ex-members.
-                    let mut channel_membership_hashes =
-                        self.store.get_channel_membership_hashes(channel).await?;
+                    if let Some(mut channel_membership_hashes) =
+                        self.store.get_channel_membership_hashes(channel).await
+                    {
+                        hashes.append(&mut channel_membership_hashes)
+                    }
 
                     // If a topic has been set for the channel, return the hash
                     // of the post.
-                    if let Some(topic_and_hash) =
-                        self.store.get_channel_topic_and_hash(channel).await?
+                    if let Some((_topic, topic_hash)) =
+                        self.store.get_channel_topic_and_hash(channel).await
                     {
-                        channel_membership_hashes.push(topic_and_hash.1)
+                        hashes.push(topic_hash)
                     }
 
-                    let response =
-                        Message::hash_response(circuit_id, req_id, channel_membership_hashes);
+                    let response = Message::hash_response(circuit_id, req_id, hashes);
 
                     // Add the peer and request ID to the request tracker if
                     // the future field has been set to 1 (i.e. keep this request
@@ -609,19 +623,24 @@ where
                     let skip = *skip as usize;
                     let limit = *limit as usize;
 
-                    let mut all_channels = self.store.get_channels().await?;
-                    let channels_len = all_channels.len();
+                    // Retrieve all known channels, returning an empty vector
+                    // if none are known.
+                    let channels = if let Some(mut all_channels) = self.store.get_channels().await {
+                        let channels_len = all_channels.len();
 
-                    // Define the channel query limit based on the request
-                    // limit and the number of known channels.
-                    let limit = if limit == 0 || limit > channels_len {
-                        channels_len
+                        // Define the channel query limit based on the request
+                        // limit and the number of known channels.
+                        let limit = if limit == 0 || limit > channels_len {
+                            channels_len
+                        } else {
+                            limit
+                        };
+
+                        // Drain the channels matching the given range.
+                        all_channels.drain(skip..limit).collect()
                     } else {
-                        limit
+                        Vec::new()
                     };
-
-                    // Drain the channels matching the given range.
-                    let channels = all_channels.drain(skip..limit).collect();
 
                     let response = Message::channel_list_response(circuit_id, req_id, channels);
 
@@ -636,7 +655,7 @@ where
                 ResponseBody::Hash { hashes } => {
                     debug!("Handling hash response...");
 
-                    let wanted_hashes = self.store.want(hashes).await?;
+                    let wanted_hashes = self.store.want(hashes).await;
                     if !wanted_hashes.is_empty() {
                         let (_, new_req_id) = self.new_req_id().await?;
 
@@ -713,7 +732,7 @@ where
                     // TODO: Do we need to take action to conclude the request
                     // which resulted in this response?
                     for channel in channels {
-                        self.store.insert_channel(channel).await?;
+                        self.store.insert_channel(channel).await;
                     }
                 }
             },
@@ -795,7 +814,7 @@ where
             .insert(req_id_bytes, (RequestOrigin::Local, request.clone()));
         self.broadcast(&request).await?;
 
-        self.store.get_posts_live(channel_opts).await
+        Ok(self.store.get_posts_live(channel_opts).await)
     }
 
     /// Create a cancel request for all active outbound channel time range
@@ -850,14 +869,14 @@ where
 
     /// Retrieve the public key of the local peer.
     pub async fn get_public_key(&mut self) -> Result<[u8; 32], Error> {
-        let (pk, _sk) = self.store.get_or_create_keypair().await?;
+        let (pk, _sk) = self.store.get_or_create_keypair().await;
 
         Ok(pk)
     }
 
     /// Retrieve the secret key of the local peer.
     pub async fn get_secret_key(&mut self) -> Result<[u8; 64], Error> {
-        let (_pk, sk) = self.store.get_or_create_keypair().await?;
+        let (_pk, sk) = self.store.get_or_create_keypair().await;
 
         Ok(sk)
     }
