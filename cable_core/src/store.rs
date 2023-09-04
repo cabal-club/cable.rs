@@ -56,8 +56,10 @@ pub type TopicHashMap = HashMap<Channel, BTreeMap<Timestamp, (Topic, Hash)>>;
 /// Storage trait with methods for storing and retrieving cryptographic
 /// keypairs, hashes and posts.
 pub trait Store: Clone + Send + Sync + Unpin + 'static {
+    // TODO: Getters do not need a mutable reference to self.
+    //
     /// Retrieve the keypair associated with the store.
-    async fn get_keypair(&mut self) -> Option<Keypair>;
+    async fn get_keypair(&self) -> Option<Keypair>;
 
     /// Define the keypair associated with the store.
     async fn set_keypair(&mut self, keypair: Keypair);
@@ -79,21 +81,20 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
     }
 
     /// Retrieve all channels from the store.
-    async fn get_channels<'a>(&'a mut self) -> Option<Vec<Channel>>;
+    async fn get_channels(&self) -> Option<Vec<Channel>>;
 
     /// Insert the given channel into the store.
     async fn insert_channel(&mut self, channel: &Channel);
 
     /// Retrieve all members of the given channel.
-    async fn get_channel_members<'a>(&'a mut self, channel: &Channel) -> Option<Vec<PublicKey>>;
+    async fn get_channel_members(&self, channel: &Channel) -> Option<Vec<PublicKey>>;
 
     /// Insert the given public key into the store using the key defined by the
     /// given channel.
     async fn insert_channel_member(&mut self, channel: &Channel, public_key: &PublicKey);
 
     /// Query whether the given public key is a member of the given channel.
-    async fn is_channel_member<'a>(&'a mut self, channel: &Channel, public_key: &PublicKey)
-        -> bool;
+    async fn is_channel_member(&self, channel: &Channel, public_key: &PublicKey) -> bool;
 
     /// Remove the given public key from the membership store using the key
     /// defined by the given channel.
@@ -101,10 +102,7 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
 
     /// Retrieve all of the latest `post/join` or `post/leave` post hashes
     /// for the given channel.
-    async fn get_channel_membership_hashes<'a>(
-        &'a mut self,
-        channel: &Channel,
-    ) -> Option<Vec<Hash>>;
+    async fn get_channel_membership_hashes(&self, channel: &Channel) -> Option<Vec<Hash>>;
 
     /// Remove the channel membership data for the given post hash.
     async fn remove_channel_membership_hash(&mut self, hash: &Hash);
@@ -119,7 +117,7 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
     );
 
     /// Retrieve all ex-members of the given channel.
-    async fn get_ex_channel_members<'a>(&'a mut self, channel: &Channel) -> Option<Vec<PublicKey>>;
+    async fn get_ex_channel_members(&self, channel: &Channel) -> Option<Vec<PublicKey>>;
 
     /// Insert the given public key into the store using the key defined by the
     /// given channel.
@@ -130,10 +128,7 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
     async fn remove_ex_channel_member(&mut self, channel: &Channel, public_key: &PublicKey);
 
     /// Retrieve the latest `post/topic` topic and hash for the given channel.
-    async fn get_channel_topic_and_hash<'a>(
-        &'a mut self,
-        channel: &Channel,
-    ) -> Option<(Topic, Hash)>;
+    async fn get_channel_topic_and_hash(&self, channel: &Channel) -> Option<(Topic, Hash)>;
 
     /// Insert the given channel topic, timestamp and hash into the store if
     /// the timestamp is later than the timestamp of the stored topic post.
@@ -150,7 +145,7 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
 
     /// Retrieve the hashes of all known delete posts authored by the given
     /// public key.
-    async fn get_delete_hashes(&mut self, public_key: &PublicKey) -> Option<Vec<Hash>>;
+    async fn get_delete_hashes(&self, public_key: &PublicKey) -> Option<Vec<Hash>>;
 
     /// Insert the given delete post hash into the store using the key defined
     /// by the given public key.
@@ -158,7 +153,7 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
 
     /// Retrieve the hashes of all known info posts authored by the given
     /// public key.
-    async fn get_info_hashes(&mut self, public_key: &PublicKey) -> Option<Vec<Hash>>;
+    async fn get_info_hashes(&self, public_key: &PublicKey) -> Option<Vec<Hash>>;
 
     /// Insert the given info post hash into the store using the key defined by
     /// the given public key.
@@ -173,10 +168,10 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
     /// More than one hash will be returned if several posts were
     /// made to the same channel at the same time. Usually though, only one
     /// hash or no hashes will be returned.
-    async fn get_latest_hashes(&mut self, channel: &Channel) -> Option<Vec<Hash>>;
+    async fn get_latest_hashes(&self, channel: &Channel) -> Option<Vec<Hash>>;
 
     /// Retrieve the latest `post/info` name and hash for the given public key.
-    async fn get_peer_name_and_hash(&mut self, public_key: &PublicKey) -> Option<(Nickname, Hash)>;
+    async fn get_peer_name_and_hash(&self, public_key: &PublicKey) -> Option<(Nickname, Hash)>;
 
     /// Insert the given nickname, timestamp and hash into the store if the
     /// timestamp is later than the timestamp of the stored topic post.
@@ -193,7 +188,7 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
 
     /// Retrieve all posts matching the parameters defined by the given
     /// `ChannelOptions`.
-    async fn get_posts<'a>(&'a mut self, opts: &ChannelOptions) -> PostStream;
+    async fn get_posts(&self, opts: &ChannelOptions) -> PostStream;
 
     /// Retrieve all posts matching the parameters defined by the given
     /// `ChannelOptions` and continue to return new messages as they become
@@ -202,7 +197,7 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
 
     /// Retrieve the hashes of all posts matching the parameters defined by the
     /// given `ChannelOptions`.
-    async fn get_post_hashes<'a>(&'a mut self, opts: &ChannelOptions) -> HashStream;
+    async fn get_post_hashes(&self, opts: &ChannelOptions) -> HashStream;
 
     /// Insert the given post into the store and return the hash.
     async fn insert_post(&mut self, post: &Post) -> Result<Hash, Error>;
@@ -230,10 +225,10 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
     );
 
     /// Retrieve the post payload for the post represented by the given hash.
-    async fn get_post_payload(&mut self, hash: &Hash) -> Option<Payload>;
+    async fn get_post_payload(&self, hash: &Hash) -> Option<Payload>;
 
     /// Retrieve the post payloads for all posts represented by the given hashes.
-    async fn get_post_payloads(&mut self, hashes: &[Hash]) -> Vec<Payload>;
+    async fn get_post_payloads(&self, hashes: &[Hash]) -> Vec<Payload>;
 
     /// Insert the given hash and post payload into the store.
     async fn insert_post_payload(&mut self, hash: &Hash, payload: Payload);
@@ -243,12 +238,12 @@ pub trait Store: Clone + Send + Sync + Unpin + 'static {
 
     /// Send the given post to each live stream for which the channel option
     /// criteria are satisfied.
-    async fn send_post_to_live_streams(&mut self, post: &Post, channel: &Channel);
+    async fn send_post_to_live_streams(&self, post: &Post, channel: &Channel);
 
     /// Retrieve the hashes of all posts representing the subset of the given
     /// hashes for which post data is not available locally (ie. the hashes of
     /// all posts which are not already in the store).
-    async fn want(&mut self, hashes: &[Hash]) -> Vec<Hash>;
+    async fn want(&self, hashes: &[Hash]) -> Vec<Hash>;
 }
 
 #[derive(Clone)]
@@ -323,7 +318,7 @@ impl Default for MemoryStore {
 
 #[async_trait::async_trait]
 impl Store for MemoryStore {
-    async fn get_keypair(&mut self) -> Option<Keypair> {
+    async fn get_keypair(&self) -> Option<Keypair> {
         Some(self.keypair)
     }
 
@@ -331,7 +326,7 @@ impl Store for MemoryStore {
         self.keypair = keypair;
     }
 
-    async fn get_channels(&mut self) -> Option<Vec<Channel>> {
+    async fn get_channels(&self) -> Option<Vec<Channel>> {
         let channels = self.channels.read().await;
 
         if channels.is_empty() {
@@ -346,7 +341,7 @@ impl Store for MemoryStore {
         channel_store.insert(channel.to_owned());
     }
 
-    async fn get_channel_members(&mut self, channel: &Channel) -> Option<Vec<PublicKey>> {
+    async fn get_channel_members(&self, channel: &Channel) -> Option<Vec<PublicKey>> {
         self.channel_members
             .read()
             .await
@@ -369,7 +364,7 @@ impl Store for MemoryStore {
         }
     }
 
-    async fn is_channel_member(&mut self, channel: &Channel, public_key: &PublicKey) -> bool {
+    async fn is_channel_member(&self, channel: &Channel, public_key: &PublicKey) -> bool {
         if let Some(channel_members) = self.get_channel_members(channel).await {
             channel_members.contains(public_key)
         } else {
@@ -388,7 +383,7 @@ impl Store for MemoryStore {
         }
     }
 
-    async fn get_channel_membership_hashes(&mut self, channel: &Channel) -> Option<Vec<Hash>> {
+    async fn get_channel_membership_hashes(&self, channel: &Channel) -> Option<Vec<Hash>> {
         self.channel_membership
             .read()
             .await
@@ -444,7 +439,7 @@ impl Store for MemoryStore {
         }
     }
 
-    async fn get_ex_channel_members(&mut self, channel: &Channel) -> Option<Vec<PublicKey>> {
+    async fn get_ex_channel_members(&self, channel: &Channel) -> Option<Vec<PublicKey>> {
         self.ex_channel_members
             .read()
             .await
@@ -478,10 +473,7 @@ impl Store for MemoryStore {
         }
     }
 
-    async fn get_channel_topic_and_hash<'a>(
-        &'a mut self,
-        channel: &Channel,
-    ) -> Option<(Topic, Hash)> {
+    async fn get_channel_topic_and_hash(&self, channel: &Channel) -> Option<(Topic, Hash)> {
         self.channel_topics
             .read()
             .await
@@ -538,7 +530,7 @@ impl Store for MemoryStore {
         });
     }
 
-    async fn get_delete_hashes(&mut self, public_key: &PublicKey) -> Option<Vec<Hash>> {
+    async fn get_delete_hashes(&self, public_key: &PublicKey) -> Option<Vec<Hash>> {
         self.delete_hashes
             .read()
             .await
@@ -561,7 +553,7 @@ impl Store for MemoryStore {
         }
     }
 
-    async fn get_info_hashes(&mut self, public_key: &PublicKey) -> Option<Vec<Hash>> {
+    async fn get_info_hashes(&self, public_key: &PublicKey) -> Option<Vec<Hash>> {
         self.info_hashes
             .read()
             .await
@@ -592,7 +584,7 @@ impl Store for MemoryStore {
             .for_each(|(_public_key, hashes)| hashes.retain(|stored_hash| stored_hash != hash));
     }
 
-    async fn get_latest_hashes(&mut self, channel: &Channel) -> Option<Vec<Hash>> {
+    async fn get_latest_hashes(&self, channel: &Channel) -> Option<Vec<Hash>> {
         // Open the posts store for reading.
         let posts_map = self.posts.read().await;
 
@@ -611,7 +603,7 @@ impl Store for MemoryStore {
         }
     }
 
-    async fn get_peer_name_and_hash(&mut self, public_key: &PublicKey) -> Option<(Nickname, Hash)> {
+    async fn get_peer_name_and_hash(&self, public_key: &PublicKey) -> Option<(Nickname, Hash)> {
         self.peer_names
             .read()
             .await
@@ -667,7 +659,7 @@ impl Store for MemoryStore {
         });
     }
 
-    async fn get_posts(&mut self, opts: &ChannelOptions) -> PostStream {
+    async fn get_posts(&self, opts: &ChannelOptions) -> PostStream {
         // Retrieve all posts matching the given channel options.
         let mut posts = self
             .posts
@@ -762,7 +754,7 @@ impl Store for MemoryStore {
         Box::new(post_stream.merge(live_stream))
     }
 
-    async fn get_post_hashes(&mut self, opts: &ChannelOptions) -> HashStream {
+    async fn get_post_hashes(&self, opts: &ChannelOptions) -> HashStream {
         let start = opts.time_start;
         let end = opts.time_end;
         let empty = self.empty_post_bt.range(..);
@@ -949,14 +941,14 @@ impl Store for MemoryStore {
         }
     }
 
-    async fn get_post_payload(&mut self, hash: &Hash) -> Option<Payload> {
+    async fn get_post_payload(&self, hash: &Hash) -> Option<Payload> {
         let post_payloads = self.post_payloads.read().await;
         let post_payload = post_payloads.get(hash);
 
         post_payload.cloned()
     }
 
-    async fn get_post_payloads(&mut self, hashes: &[Hash]) -> Vec<Payload> {
+    async fn get_post_payloads(&self, hashes: &[Hash]) -> Vec<Payload> {
         let post_payloads = self.post_payloads.read().await;
 
         hashes
@@ -979,7 +971,7 @@ impl Store for MemoryStore {
         post_payloads.retain(|stored_hash, _payload| stored_hash != hash);
     }
 
-    async fn send_post_to_live_streams(&mut self, post: &Post, channel: &Channel) {
+    async fn send_post_to_live_streams(&self, post: &Post, channel: &Channel) {
         if let Some(senders) = self.live_streams.read().await.get(channel) {
             for stream in senders.write().await.iter_mut() {
                 if stream.matches(post) {
@@ -989,7 +981,7 @@ impl Store for MemoryStore {
         }
     }
 
-    async fn want(&mut self, hashes: &[Hash]) -> Vec<Hash> {
+    async fn want(&self, hashes: &[Hash]) -> Vec<Hash> {
         let post_payloads = self.post_payloads.read().await;
 
         // Return the "wanted" hashes.
