@@ -44,7 +44,7 @@ pub type NameHashMap = HashMap<PublicKey, BTreeMap<Timestamp, (Nickname, Hash)>>
 /// The key is an `Option` to allow for storage and retrieved of post types
 /// which do not have an associated channel; these posts are stored with a
 /// key of `None`.
-pub type PostMap = HashMap<Option<Channel>, BTreeMap<u64, Vec<(Post, Hash)>>>;
+pub type PostMap = HashMap<Option<Channel>, BTreeMap<Timestamp, Vec<(Post, Hash)>>>;
 
 /// A `HashMap` of channel topics with a key of channel name and a value of a
 /// `BTreeMap`. The `BTreeMap` has a key of timestamp and a value of a tuple
@@ -930,7 +930,6 @@ impl Store for MemoryStore {
         } else {
             // No posts have previously been stored for the
             // given channel.
-
             let mut post_map = BTreeMap::new();
             // Insert the post (as a `Vec`) into the `BTreeMap`,
             // using the timestamp as the key.

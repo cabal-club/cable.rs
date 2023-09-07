@@ -80,6 +80,17 @@ impl RequestOrigin {
     }
 }
 
+/// Generate a timestamp for the current time.
+fn now() -> Result<u64, Error> {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_millis()
+        // Convert from u128 to u64.
+        .try_into()?;
+
+    Ok(timestamp)
+}
+
 /// The manager for a single cable instance.
 #[derive(Clone)]
 pub struct CableManager<S: Store> {
@@ -281,10 +292,12 @@ where
             task::spawn(async move {
                 // Listen for incoming locally-generated messages.
                 while let Ok(msg) = recv.recv().await {
-                    debug!("Wrote a message to the TCP stream: {}", msg);
+                    let msg_bytes = &msg.to_bytes()?;
 
                     // Write the message to the stream.
-                    stream_c.write_all(&msg.to_bytes()?).await?;
+                    stream_c.write_all(msg_bytes).await?;
+
+                    debug!("Wrote a message to the TCP stream: {}", msg,);
                 }
 
                 // Type inference fails without binding concretely to `Result`.
@@ -307,7 +320,7 @@ where
             // Deserialize the received message.
             let (_, msg) = Message::from_bytes(&buf)?;
 
-            debug!("Received a message from the TCP stream: {}", msg);
+            debug!("Received a message from the TCP stream: {}", msg,);
 
             let mut this = self.clone();
             task::spawn(async move {
@@ -420,8 +433,6 @@ where
                     }
                 }
                 if *ttl == 0 {
-                    debug!("Removing request {:?} from outbound requests...", req_id);
-
                     // The TTL for this request has been exhausted.
                     self.outbound_requests.write().await.remove(req_id);
                 } else {
@@ -460,9 +471,7 @@ where
         } else {
             vec![]
         };
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_secs();
+        let timestamp = now()?;
 
         Ok((public_key, links, timestamp))
     }
@@ -490,9 +499,7 @@ where
     pub async fn post_delete(&mut self, hashes: Vec<Hash>) -> Result<Hash, Error> {
         let public_key = self.get_public_key().await?;
         let links = vec![];
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_secs();
+        let timestamp = now()?;
 
         // Add the hashes to the store of deleted posts.
         //
@@ -515,9 +522,7 @@ where
     pub async fn post_info_name(&mut self, username: &str) -> Result<Hash, Error> {
         let public_key = self.get_public_key().await?;
         let links = vec![];
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_secs();
+        let timestamp = now()?;
 
         let name_info = UserInfo::name(username)?;
 
@@ -617,6 +622,11 @@ where
 
                 match live_request {
                     LiveRequest::ChannelState(req_id, req_channel) => {
+                        debug!(
+                            "Matched channel state live request: {}",
+                            hex::encode(req_id)
+                        );
+
                         // Only send hashes if the channel of the post which invoked
                         // the call to `send_post_hashes()` matches the channel of
                         // the peer request.
@@ -681,6 +691,11 @@ where
                         }
                     }
                     LiveRequest::ChannelTimeRange(req_id, channel_opts) => {
+                        debug!(
+                            "Matched channel time range live request: {}",
+                            hex::encode(req_id)
+                        );
+
                         // Only send hashes if the channel of the post which invoked
                         // the call to `send_post_hashes()` matches the channel of
                         // the peer request.
@@ -692,7 +707,7 @@ where
                             while let Some(result) = stream.next().await {
                                 hashes.push(result?);
                                 // Break once the request limit has been reached.
-                                if hashes.len() as u64 >= limit {
+                                if limit != 0 && hashes.len() as u64 >= limit {
                                     break;
                                 }
                             }
@@ -701,10 +716,15 @@ where
                             drop(stream);
 
                             // Construct a new hash response message.
-                            let response = Message::hash_response(NO_CIRCUIT, *req_id, hashes);
+                            let response =
+                                Message::hash_response(NO_CIRCUIT, *req_id, hashes.clone());
 
-                            // Send the response to the peer.
-                            self.send(*peer_id, &response).await?;
+                            // Only send a response if there are post hashes matching
+                            // the given request parameters.
+                            if !hashes.is_empty() {
+                                // Send the response to the peer.
+                                self.send(*peer_id, &response).await?;
+                            }
                         }
                     }
                 }
@@ -811,6 +831,7 @@ where
                     }
 
                     let channel_opts = ChannelOptions::new(channel, *time_start, *time_end, *limit);
+
                     let n_limit = (*limit).min(4096);
 
                     let mut hashes = vec![];
@@ -819,8 +840,12 @@ where
                     // Iterate over the hashes in the stream.
                     while let Some(result) = stream.next().await {
                         hashes.push(result?);
-                        // Break out of the loop once the requested limit is met.
-                        if hashes.len() as u64 >= n_limit {
+                        // Break out of the loop once the requested limit is
+                        // met.
+                        //
+                        // A limit of 0 means there is no limit on the number
+                        // of hashes that may be returned.
+                        if n_limit != 0 && hashes.len() as u64 >= n_limit {
                             break;
                         }
                     }
@@ -828,7 +853,7 @@ where
                     // call to `self.send()` (immutable borrow).
                     drop(stream);
 
-                    let response = Message::hash_response(circuit_id, req_id, hashes);
+                    let response = Message::hash_response(circuit_id, req_id, hashes.clone());
 
                     // Add the peer and request ID to the request tracker if
                     // the end time has been set to 0 (i.e. keep this request
@@ -838,13 +863,23 @@ where
 
                         let mut live_requests = self.live_requests.write().await;
                         if let Some(peer_requests) = live_requests.get_mut(&peer_id) {
+                            // TODO: Only push if `peer_requests` does not
+                            // already contain this request.
                             peer_requests.push(live_request);
                         } else {
                             live_requests.insert(peer_id, vec![live_request]);
                         }
-                    }
 
-                    self.send(peer_id, &response).await?;
+                        // Only send a response if there are post hashes matching
+                        // the given request parameters.
+                        if !hashes.is_empty() {
+                            self.send(peer_id, &response).await?
+                        }
+                    } else {
+                        // Send a hash response, even if there are no known
+                        // hashes matching the request parameters.
+                        self.send(peer_id, &response).await?
+                    }
                 }
                 RequestBody::ChannelState { channel, future } => {
                     debug!("Handling channel state request...");
@@ -871,12 +906,29 @@ where
                         hashes.push(topic_hash)
                     }
 
-                    let response = Message::hash_response(circuit_id, req_id, hashes);
+                    let response = Message::hash_response(circuit_id, req_id, hashes.clone());
 
-                    // Add the peer and request ID to the request tracker if
-                    // the future field has been set to 1 (i.e. keep this request
-                    // alive and send new messages as they become available).
-                    if *future == 1 {
+                    // Send only the latest known hashes; do not keep the
+                    // request alive after responding.
+                    if *future == 0 {
+                        if !hashes.is_empty() {
+                            // Send the known hashes.
+                            self.send(peer_id, &response).await?;
+
+                            // Compost and send an empty hash response to
+                            // terminate the request.
+                            let closing_response =
+                                Message::hash_response(circuit_id, req_id, Vec::new());
+                            self.send(peer_id, &closing_response).await?;
+                        } else {
+                            // Send the empty hash response to terminate the
+                            // request.
+                            self.send(peer_id, &response).await?;
+                        }
+                    } else if *future == 1 {
+                        // Add the peer and request ID to the request tracker if
+                        // the future field has been set to 1 (i.e. keep this request
+                        // alive and send new messages as they become available).
                         let live_request = LiveRequest::ChannelState(req_id, channel.to_string());
 
                         let mut live_requests = self.live_requests.write().await;
@@ -885,9 +937,13 @@ where
                         } else {
                             live_requests.insert(peer_id, vec![live_request]);
                         }
-                    }
 
-                    self.send(peer_id, &response).await?
+                        // Only send a response if there are post hashes matching
+                        // the given request parameters.
+                        if !hashes.is_empty() {
+                            self.send(peer_id, &response).await?
+                        }
+                    }
 
                     /*
                     TODO: We will require channel state indexes before this
@@ -929,6 +985,7 @@ where
                         Vec::new()
                     };
 
+                    // Send a response, even if no channels are currently known.
                     let response = Message::channel_list_response(circuit_id, req_id, channels);
 
                     self.send(peer_id, &response).await?

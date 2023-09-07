@@ -63,12 +63,14 @@ fn init() {
     let _ = env_logger::builder().is_test(false).try_init();
 }
 
-// Get the current system time in seconds since the UNIX epoch.
-fn now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
+// Get the current system time in milliseconds since the UNIX epoch.
+fn now() -> Result<u64, Error> {
+    let time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_millis()
+        .try_into()?;
+
+    Ok(time)
 }
 
 #[async_std::test]
@@ -107,7 +109,7 @@ async fn channel_time_range_request_response() -> Result<(), Error> {
     info!("Connected to TCP server on {}", addr);
 
     // Create a timestamp for later use.
-    let time_before_posts_were_published = now();
+    let time_before_posts_were_published = now()?;
 
     // Publish a post to the "myco" channel.
     let _post_hash_1 = cable
@@ -133,7 +135,7 @@ async fn channel_time_range_request_response() -> Result<(), Error> {
     // These parameters should result in zero post hashes being returned, due
     // to the fact that the three posts were published before the given
     // `time_start` parameter.
-    let opts = ChannelOptions::new("myco", now(), now(), 10);
+    let opts = ChannelOptions::new("myco", now()?, now()?, 10);
 
     // Create a channel time range request.
     let channel_time_range_req =
@@ -176,7 +178,7 @@ async fn channel_time_range_request_response() -> Result<(), Error> {
     // These parameters should result in three post hashes being returned, due
     // to the fact that three posts were published after the given `time_start`
     // parameter.
-    let opts = ChannelOptions::new("myco", time_before_posts_were_published, now(), 5);
+    let opts = ChannelOptions::new("myco", time_before_posts_were_published, now()?, 5);
 
     // Create a channel time range request.
     let channel_time_range_req =
@@ -215,7 +217,7 @@ async fn channel_time_range_request_response() -> Result<(), Error> {
     // These parameters should result in two post hashes being returned, due
     // to the fact that three posts were published after the given `time_start`
     // parameter but the `limit` parameter is set to 2.
-    let opts = ChannelOptions::new("myco", time_before_posts_were_published, now(), 2);
+    let opts = ChannelOptions::new("myco", time_before_posts_were_published, now()?, 2);
 
     // Create a channel time range request.
     let channel_time_range_req =
