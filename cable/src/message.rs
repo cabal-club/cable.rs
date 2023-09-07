@@ -182,7 +182,33 @@ impl Message {
 /// Print a message with byte arrays formatted as hex strings.
 impl fmt::Display for Message {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{{ {}, {} }}", &self.header, &self.body)
+        match &self.header.msg_type {
+            0 => write!(f, "HashResponse {{ {}, {} }}", &self.header, &self.body),
+            1 => write!(f, "PostResponse {{ {}, {} }}", &self.header, &self.body),
+            2 => write!(f, "PostRequest {{ {}, {} }}", &self.header, &self.body),
+            3 => write!(f, "CancelRequest {{ {}, {} }}", &self.header, &self.body),
+            4 => write!(
+                f,
+                "ChannelTimeRangeRequest {{ {}, {} }}",
+                &self.header, &self.body
+            ),
+            5 => write!(
+                f,
+                "ChannelStateRequest {{ {}, {} }}",
+                &self.header, &self.body
+            ),
+            6 => write!(
+                f,
+                "ChannelListRequest {{ {}, {} }}",
+                &self.header, &self.body
+            ),
+            7 => write!(
+                f,
+                "ChannelListResponse {{ {}, {} }}",
+                &self.header, &self.body
+            ),
+            _ => write!(f, "Unknown {{ {}, {} }}", &self.header, &self.body),
+        }
     }
 }
 
