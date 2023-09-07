@@ -748,10 +748,10 @@ where
     fn from_bytes(src: &[u8]) -> Result<(usize, Self), Error> {
         let mut res = [T::default(); N];
         let mut offset = 0;
-        for i in 0..N {
+        for byte in res.iter_mut().take(N) {
             let (size, x) = T::from_bytes(&src[offset..])?;
             offset += size;
-            res[i] = x;
+            *byte = x;
         }
         Ok((offset, res))
     }
@@ -764,10 +764,10 @@ where
     fn from_bytes_be(src: &[u8]) -> Result<(usize, Self), Error> {
         let mut res = [T::default(); N];
         let mut offset = 0;
-        for i in 0..N {
+        for byte in res.iter_mut().take(N) {
             let (size, x) = T::from_bytes_be(&src[offset..])?;
             offset += size;
-            res[i] = x;
+            *byte = x;
         }
         Ok((offset, res))
     }
@@ -780,10 +780,10 @@ where
     fn from_bytes_le(src: &[u8]) -> Result<(usize, Self), Error> {
         let mut res = [T::default(); N];
         let mut offset = 0;
-        for i in 0..N {
+        for byte in res.iter_mut().take(N) {
             let (size, x) = T::from_bytes_le(&src[offset..])?;
             offset += size;
-            res[i] = x;
+            *byte = x;
         }
         Ok((offset, res))
     }
