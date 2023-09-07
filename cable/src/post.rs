@@ -337,7 +337,15 @@ impl Post {
 /// Print a post with byte arrays formatted as hex strings.
 impl fmt::Display for Post {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{{ {}, {} }}", &self.header, &self.body)
+        match &self.header.post_type {
+            0 => write!(f, "post/text {{ {}, {} }}", &self.header, &self.body),
+            1 => write!(f, "post/delete {{ {}, {} }}", &self.header, &self.body),
+            2 => write!(f, "post/info {{ {}, {} }}", &self.header, &self.body),
+            3 => write!(f, "post/topic {{ {}, {} }}", &self.header, &self.body),
+            4 => write!(f, "post/join {{ {}, {} }}", &self.header, &self.body),
+            5 => write!(f, "post/leave {{ {}, {} }}", &self.header, &self.body),
+            _ => write!(f, "post/unknown {{ {}, {} }}", &self.header, &self.body),
+        }
     }
 }
 
