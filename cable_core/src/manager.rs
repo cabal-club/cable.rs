@@ -80,6 +80,17 @@ impl RequestOrigin {
     }
 }
 
+/// Generate a timestamp for the current time.
+fn now() -> Result<u64, Error> {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_millis()
+        // Convert from u128 to u64.
+        .try_into()?;
+
+    Ok(timestamp)
+}
+
 /// The manager for a single cable instance.
 #[derive(Clone)]
 pub struct CableManager<S: Store> {
@@ -460,11 +471,7 @@ where
         } else {
             vec![]
         };
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_millis()
-            // Convert from u128 to u64.
-            .try_into()?;
+        let timestamp = now()?;
 
         Ok((public_key, links, timestamp))
     }
@@ -492,11 +499,7 @@ where
     pub async fn post_delete(&mut self, hashes: Vec<Hash>) -> Result<Hash, Error> {
         let public_key = self.get_public_key().await?;
         let links = vec![];
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_millis()
-            // Convert from u128 to u64.
-            .try_into()?;
+        let timestamp = now()?;
 
         // Add the hashes to the store of deleted posts.
         //
@@ -519,11 +522,7 @@ where
     pub async fn post_info_name(&mut self, username: &str) -> Result<Hash, Error> {
         let public_key = self.get_public_key().await?;
         let links = vec![];
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_millis()
-            // Convert from u128 to u64.
-            .try_into()?;
+        let timestamp = now()?;
 
         let name_info = UserInfo::name(username)?;
 
