@@ -6,7 +6,7 @@ An experimental [cable](https://github.com/cabal-club/cable) protocol implementa
 
 This library provides a means of encoding and decoding binary payloads corresponding to all cable post and message types. Constructor methods are exposed for each type.
 
-See the [cable_core]("../cable_core") crate for higher-level client building types and methods.
+See the [cable_core](../cable_core) crate for higher-level client building types and methods.
 
 ## Example
 

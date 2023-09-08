@@ -6,7 +6,7 @@ This library should be relied upon when implementing a `cable.rs` chat applicati
 
 **Status**: alpha (under active construction; expect changes).
 
-This library does not handle encoding and decoding cable binary payloads. See the [cable]("../cable") crate for those features.
+This library does not handle encoding and decoding cable binary payloads. See the [cable](../cable) crate for those features.
 
 ## Usage
 
