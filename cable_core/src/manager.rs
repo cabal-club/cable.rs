@@ -325,9 +325,9 @@ where
             let mut this = self.clone();
             task::spawn(async move {
                 // Handle the received message.
-                if let Err(e) = this.handle(peer_id, &msg).await {
+                if let Err(err) = this.handle(peer_id, &msg).await {
                     // TODO: Consider a better way to report.
-                    eprintln!["{}", e];
+                    eprintln!("{err}");
                 }
             });
         }
@@ -469,7 +469,7 @@ where
         let links = if let Some(links) = self.get_links(channel).await {
             links
         } else {
-            vec![]
+            Vec::new()
         };
         let timestamp = now()?;
 
@@ -498,7 +498,7 @@ where
     /// hash of the new post.
     pub async fn post_delete(&mut self, hashes: Vec<Hash>) -> Result<Hash, Error> {
         let public_key = self.get_public_key().await?;
-        let links = vec![];
+        let links = Vec::new();
         let timestamp = now()?;
 
         // Add the hashes to the store of deleted posts.
@@ -521,7 +521,7 @@ where
     /// Publish a new info post with the given name and return the hash.
     pub async fn post_info_name(&mut self, username: &str) -> Result<Hash, Error> {
         let public_key = self.get_public_key().await?;
-        let links = vec![];
+        let links = Vec::new();
         let timestamp = now()?;
 
         let name_info = UserInfo::name(username)?;
@@ -834,7 +834,7 @@ where
 
                     let n_limit = (*limit).min(4096);
 
-                    let mut hashes = vec![];
+                    let mut hashes = Vec::new();
                     // Create a stream of post hashes matching the given criteria.
                     let mut stream = self.store.get_post_hashes(&channel_opts).await;
                     // Iterate over the hashes in the stream.
