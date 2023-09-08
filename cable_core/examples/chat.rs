@@ -17,11 +17,13 @@ use cable_core::{CableManager, MemoryStore};
 
 type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
 
-fn now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
+fn now() -> Result<u64, Error> {
+    let time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_millis()
+        .try_into()?;
+
+    Ok(time)
 }
 
 fn main() -> Result<(), Error> {
@@ -35,7 +37,7 @@ fn main() -> Result<(), Error> {
 
         let opts = ChannelOptions {
             channel: "default".to_string(),
-            time_start: now(),
+            time_start: now()?,
             time_end: 0,
             limit: 20,
         };
@@ -43,11 +45,9 @@ fn main() -> Result<(), Error> {
         // Open a channel and print received messages.
         let mut client = cable.clone();
         task::spawn(async move {
-            let mut msg_stream = client.open_channel(&opts).await.unwrap();
-            while let Some(msg) = msg_stream.next().await {
-                if let Ok(m) = msg {
-                    println!["{}", m];
-                }
+            let mut post_stream = client.open_channel(&opts).await.unwrap();
+            while let Some(Ok(post)) = post_stream.next().await {
+                println!("{post}");
             }
         });
 
@@ -72,7 +72,7 @@ fn main() -> Result<(), Error> {
         if let Some(port) = argv.get("l").and_then(|x| x.first()) {
             println!("Deploying TCP server on 0.0.0.0:{}", port);
 
-            let listener = net::TcpListener::bind(format!["0.0.0.0:{}", port]).await?;
+            let listener = net::TcpListener::bind(format!("0.0.0.0:{port}")).await?;
             let mut incoming = listener.incoming();
             while let Some(stream) = incoming.next().await {
                 let stream = stream.unwrap();
@@ -83,7 +83,7 @@ fn main() -> Result<(), Error> {
             }
         // Connect to a TCP server and pass the stream to the cable manager.
         } else if let Some(addr) = args.get(1) {
-            println!("Connecting to TCP server on {}", addr);
+            println!("Connecting to TCP server on {addr}");
 
             let stream = net::TcpStream::connect(addr).await?;
             cable.listen(stream).await?;
