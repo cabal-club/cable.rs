@@ -18,6 +18,22 @@ pub fn validate_channel(channel: &String) -> Result<(), Error> {
     Ok(())
 }
 
+/// Validate the length of a post's text (less than or equal to 4096 bytes).
+pub fn validate_text(text: &String) -> Result<(), Error> {
+    // Determine the length of the given post text in bytes.
+    let text_len = text.len();
+    // The text must not exceed 4096 bytes.
+    if text_len > 4096 {
+        return CableErrorKind::TextLengthIncorrect {
+            text: text.to_owned(),
+            len: text_len,
+        }
+        .raise();
+    }
+
+    Ok(())
+}
+
 /// Validate the length of a topic name (1 to 512 UTF-8 codepoints).
 pub fn validate_topic(topic: &String) -> Result<(), Error> {
     // Determine the length of the given channel topic in UTF-8 codepoints.
