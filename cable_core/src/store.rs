@@ -660,16 +660,26 @@ impl Store for MemoryStore {
     }
 
     async fn get_posts(&self, opts: &ChannelOptions) -> PostStream {
+        let start = opts.time_start;
+        let end = opts.time_end;
+        let empty = self.empty_post_bt.range(..);
+
+        let all_posts = self.posts.read().await;
+
         // Retrieve all posts matching the given channel options.
-        let mut posts = self
-            .posts
-            .read()
-            .await
+        let mut posts = all_posts
             .get(&Some(opts.channel.to_owned()))
+            // Return only the posts for which the key (timestamp: `x`)
+            // matches the given range (provided via `opts`).
+            .map(|x| match (start, end) {
+                (0, 0) => x.range(..),
+                (0, end) => x.range(..end),
+                (start, 0) => x.range(start..),
+                _ => x.range(start..end),
+            })
             // Return an empty map if no posts are found matching the given
             // channel.
-            .unwrap_or(&self.empty_post_bt)
-            .range(opts.time_start..opts.time_end)
+            .unwrap_or(empty)
             // Iterate over the post data and extract the post for each one,
             // wrapping it in a `Result`.
             .flat_map(|(_time, posts)| posts.iter().map(|(post, _hash)| Ok(post.clone())))
@@ -682,10 +692,7 @@ impl Store for MemoryStore {
         //
         // Retrieve all posts which do not have a channel field.
         // For example, `post/info` posts.
-        let non_channel_posts = self
-            .posts
-            .read()
-            .await
+        let non_channel_posts = all_posts
             .get(&None)
             .unwrap_or(&self.empty_post_bt)
             .iter()

@@ -27,9 +27,10 @@ pub enum CableErrorKind {
     NoneError { context: String },
     PostWriteUnrecognizedType { post_type: u64 },
     PostHashingFailed {},
-    UsernameLengthIncorrect { name: String, len: usize },
     ChannelLengthIncorrect { channel: String, len: usize },
+    TextLengthIncorrect { text: String, len: usize },
     TopicLengthIncorrect { topic: String, len: usize },
+    UsernameLengthIncorrect { name: String, len: usize },
 }
 
 impl CableErrorKind {
@@ -95,13 +96,6 @@ impl std::fmt::Display for CableError {
             CableErrorKind::PostWriteUnrecognizedType { post_type } => {
                 write![f, "cannot write unrecognized post_type={}", post_type]
             }
-            CableErrorKind::UsernameLengthIncorrect { name, len } => {
-                write![
-                    f,
-                    "expected username between 1 and 32 codepoints; name `{}` is {} codepoints",
-                    name, len
-                ]
-            }
             CableErrorKind::ChannelLengthIncorrect { channel, len } => {
                 write![
                     f,
@@ -109,11 +103,25 @@ impl std::fmt::Display for CableError {
                     channel, len
                 ]
             }
+            CableErrorKind::TextLengthIncorrect { text, len } => {
+                write![
+                    f,
+                    "expected text of 4096 bytes or less; text `{}` is {} bytes",
+                    text, len
+                ]
+            }
             CableErrorKind::TopicLengthIncorrect { topic, len } => {
                 write![
                     f,
                     "expected topic between 0 and 512 codepoints; topic `{}` is {} codepoints",
                     topic, len
+                ]
+            }
+            CableErrorKind::UsernameLengthIncorrect { name, len } => {
+                write![
+                    f,
+                    "expected username between 1 and 32 codepoints; name `{}` is {} codepoints",
+                    name, len
                 ]
             }
         }

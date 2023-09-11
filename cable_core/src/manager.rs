@@ -16,7 +16,7 @@ use async_std::{
 use cable::{
     constants::NO_CIRCUIT,
     message::{Message, MessageBody, MessageHeader, RequestBody, ResponseBody},
-    Channel, ChannelOptions, Error, Hash, Post, ReqId, Timestamp, UserInfo,
+    validation, Channel, ChannelOptions, Error, Hash, Post, ReqId, Timestamp, UserInfo,
 };
 use desert::{FromBytes, ToBytes};
 use futures::io::{AsyncRead, AsyncWrite};
@@ -488,6 +488,9 @@ where
         let (public_key, links, timestamp) = self.post_header_values(&channel).await?;
         let text = text.into();
 
+        // Ensure the text does not exceed 4096 bytes.
+        validation::validate_text(&text)?;
+
         // Construct a new text post.
         let post = Post::text(public_key, links, timestamp, channel, text);
 
@@ -524,6 +527,7 @@ where
         let links = Vec::new();
         let timestamp = now()?;
 
+        // Validation is performed as part of this method.
         let name_info = UserInfo::name(username)?;
 
         // Construct a new info post.
@@ -542,6 +546,9 @@ where
         let (public_key, links, timestamp) = self.post_header_values(&channel).await?;
         let topic = topic.into();
 
+        // Ensure the topic is between 0 and 512 UTF-8 codepoints.
+        validation::validate_topic(&topic)?;
+
         // Construct a new topic post.
         let post = Post::topic(public_key, links, timestamp, channel, topic);
 
@@ -553,6 +560,9 @@ where
         let channel = channel.into();
         let (public_key, links, timestamp) = self.post_header_values(&channel).await?;
 
+        // Ensure the channel name is between 1 and 64 UTF-8 codepoints.
+        validation::validate_channel(&channel)?;
+
         // Construct a new join post.
         let post = Post::join(public_key, links, timestamp, channel);
 
@@ -563,6 +573,9 @@ where
     pub async fn post_leave<T: Into<String>>(&mut self, channel: T) -> Result<Hash, Error> {
         let channel = channel.into();
         let (public_key, links, timestamp) = self.post_header_values(&channel).await?;
+
+        // Ensure the channel name is between 1 and 64 UTF-8 codepoints.
+        validation::validate_channel(&channel)?;
 
         // Construct a new leave post.
         let post = Post::leave(public_key, links, timestamp, channel);

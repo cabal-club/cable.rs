@@ -549,6 +549,8 @@ impl FromBytes for Post {
 
                 // Read the text bytes and increment the offset.
                 let text = String::from_utf8(buf[offset..offset + text_len as usize].to_vec())?;
+                // Validate the byte length of the text.
+                validation::validate_text(&text)?;
                 offset += text_len as usize;
 
                 PostBody::Text { channel, text }
