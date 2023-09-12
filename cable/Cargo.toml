@@ -1,0 +1,12 @@
+[package]
+name = "cable"
+version = "1.1.0"
+edition = "2021"
+
+[dependencies]
+sodiumoxide = "0.2.7"
+desert = { path = "../desert" }
+
+[dev-dependencies]
+# TODO: Use `sodiumoxide::hex` instead.
+hex = "0.4.3"

@@ -1,0 +1,14 @@
+[package]
+description = "decode a byte stream of varint length-encoded messages into a stream of chunks"
+edition = "2018"
+license = "BSD-3-Clause"
+name = "length-prefixed-stream"
+readme = "readme.md"
+version = "1.0.0"
+
+[dependencies]
+async-std = "1.9.0"
+desert = { path = "../desert" }
+futures = "0.3.28"
+futures-core = "0.3.28"
+pin-project-lite = "0.2.10"
