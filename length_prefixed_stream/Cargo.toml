@@ -4,11 +4,12 @@ edition = "2018"
 license = "BSD-3-Clause"
 name = "length-prefixed-stream"
 readme = "readme.md"
-version = "1.0.0"
+version = "1.1.0"
 
 [dependencies]
-async-std = "1.9.0"
 desert = { path = "../desert" }
-futures = "0.3.28"
-futures-core = "0.3.28"
+futures = { version = "0.3.29", default-features = false, features = ["std"] }
 pin-project-lite = "0.2.10"
+
+[dev-dependencies]
+smol = "1.3.0"

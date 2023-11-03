@@ -16,9 +16,8 @@ mod unfold;
 
 use std::{collections::VecDeque, marker::Unpin};
 
-use async_std::{prelude::*, stream::Stream};
 use desert::varint;
-use futures::io::AsyncRead;
+use futures::{io::AsyncRead, stream::Stream, AsyncReadExt};
 
 pub use error::{DecodeError, DecodeErrorKind};
 use unfold::unfold;
