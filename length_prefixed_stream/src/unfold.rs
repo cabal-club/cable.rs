@@ -1,4 +1,4 @@
-// vendored version of futures::stream::unfold
+// Vendored version of futures::stream::unfold
 // modified to use async_std
 
 // The original source file from which this is derived is
@@ -9,12 +9,13 @@
 // https://github.com/rust-lang/futures-rs/blob/master/LICENSE-MIT
 // https://github.com/rust-lang/futures-rs/blob/master/LICENSE-APACHE
 
-use async_std::future::Future;
-use async_std::stream::Stream;
-use async_std::task::{Context, Poll};
-use core::fmt;
-use core::pin::Pin;
-use futures_core::ready;
+use core::{fmt, pin::Pin};
+use futures::{
+    future::Future,
+    ready,
+    stream::Stream,
+    task::{Context, Poll},
+};
 
 pub fn unfold<T, F, Fut, It>(init: T, f: F) -> Unfold<T, F, Fut>
 where
