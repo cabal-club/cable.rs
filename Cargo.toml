@@ -1,8 +1,10 @@
 [workspace]
+resolver = "2"
 
 members = [
     "cable",
     "cable_core",
     "desert",
+    "handshake",
     "length_prefixed_stream"
 ]
