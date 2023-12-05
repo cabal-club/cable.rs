@@ -703,7 +703,7 @@ impl Store for MemoryStore {
         posts.extend(non_channel_posts);
 
         // Return a post stream.
-        Box::new(stream::from_iter(posts.into_iter()))
+        Box::new(stream::from_iter(posts))
     }
 
     async fn get_posts_live(&mut self, opts: &ChannelOptions) -> PostStream {
@@ -786,7 +786,7 @@ impl Store for MemoryStore {
             .collect::<Vec<Result<Hash, Error>>>();
 
         // Return a hash stream.
-        Box::new(stream::from_iter(hashes.into_iter()))
+        Box::new(stream::from_iter(hashes))
     }
 
     async fn insert_post(&mut self, post: &Post) -> Result<Hash, Error> {

@@ -11,6 +11,7 @@ use async_std::{
     task::{Context, Poll, Waker},
 };
 use cable::{ChannelOptions, Error, Hash, Post};
+use log::error;
 
 /// An asynchronous stream of posts.
 pub type PostStream<'a> = Box<dyn Stream<Item = Result<Post, Error>> + Unpin + Send + 'a>;
@@ -47,7 +48,9 @@ impl LiveStream {
 
     /// Send a post to the live stream manager.
     pub async fn send(&mut self, post: Post) {
-        if self.sender.try_send(post).is_err() {}
+        if let Err(err) = self.sender.try_send(post) {
+            error!("Failed to send post to live stream manager: {err}");
+        }
         if let Some(waker) = self.waker.lock().await.as_ref() {
             waker.wake_by_ref();
         }
