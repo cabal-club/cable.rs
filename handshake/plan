@@ -1,0 +1,15 @@
+
+https://github.com/cabal-club/cable/blob/handshake-proto/handshake.md
+
+
+ - Use `desert` for serializing and deserializing bytes
+
+ - Design the API first
+   - Take a look at other handshake protocols
+     - kuska-handshake
+	 - Also look at Rust for Rustaceans
+
+Do we want to provide synchronous and asynchronous versions?
+
+ - Sync
+ - Async

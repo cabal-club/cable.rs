@@ -1,0 +1,9 @@
+[package]
+name = "cable_handshake"
+version = "0.1.0"
+authors = ["glyph <glyph@mycelial.technology>"]
+description = "Cable handshake protocol implementation"
+edition = "2021"
+
+[dependencies]
+desert = { path = "../desert" }
