@@ -7,17 +7,14 @@ use desert::{FromBytes, ToBytes};
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
-/*
-struct Config {
-    role: Role,
-    version: Version,
-}
+/// Size of the version message.
+pub const VERSION_BYTES_LEN: usize = 2;
 
-enum Role {
-    Initiator,
-    Responder,
+/// Number of bytes that will be written to the `send_buf` and `recv_buf`
+/// during the version exchange.
+pub const fn version_bytes_len() -> usize {
+    VERSION_BYTES_LEN
 }
-*/
 
 /// The initialization data of a handshake that exists in every state of the
 /// handshake.
@@ -36,7 +33,7 @@ pub struct Handshake<S: State> {
     pub state: S,
 }
 
-// Client states.
+// Client states. The client acts as the handshake initiator.
 
 /// The client state that can send the version.
 #[derive(Debug)]
@@ -46,7 +43,7 @@ pub struct ClientSendVersion;
 #[derive(Debug)]
 pub struct ClientRecvVersion;
 
-// Server states.
+// Server states. The server acts as the handshake responder.
 
 /// The server state that can receive the version.
 #[derive(Debug)]
@@ -55,6 +52,10 @@ pub struct ServerRecvVersion;
 /// The server state that can receive the version.
 #[derive(Debug)]
 pub struct ServerSendVersion;
+
+/// The client / server state that can perform the Noise handshake.
+#[derive(Debug)]
+pub struct NoiseHandshake;
 
 /// The `State` trait is used to implement the typestate pattern for the
 /// `Handshake`.
@@ -78,6 +79,10 @@ impl State for ClientRecvVersion {}
 impl State for ServerRecvVersion {}
 impl State for ServerSendVersion {}
 
+impl State for NoiseHandshake {}
+
+// Client.
+
 impl Handshake<ClientSendVersion> {
     /// Create a new handshake client that can send the version data.
     pub fn new_client(version: Version) -> Handshake<ClientSendVersion> {
@@ -93,6 +98,69 @@ impl Handshake<ClientSendVersion> {
         // TODO: Handle unwrap.
         concat_into!(send_buf, &self.base.version.to_bytes().unwrap());
         let state = ClientRecvVersion;
+
+        Handshake {
+            base: self.base,
+            state,
+        }
+    }
+}
+
+impl Handshake<ClientRecvVersion> {
+    /// Receive the version data from the server and validate it before
+    /// advancing to the next client state.
+    pub fn recv_server_version(self, recv_buf: &mut [u8]) -> Handshake<NoiseHandshake> {
+        // TODO: Handle unwrap.
+        let (_n, server_version) = Version::from_bytes(recv_buf).unwrap();
+        if server_version != self.base.version {
+            todo!()
+            //return Err(Error::RecvServerVersion);
+        }
+        let state = NoiseHandshake;
+
+        Handshake {
+            base: self.base,
+            state,
+        }
+    }
+}
+
+// Server.
+
+impl Handshake<ServerRecvVersion> {
+    /// Create a new handshake server that can receive the version data.
+    pub fn new_server(version: Version) -> Handshake<ServerRecvVersion> {
+        let base = HandshakeBase { version };
+        let state = ServerRecvVersion;
+
+        Handshake { base, state }
+    }
+
+    /// Receive the version data from the client and validate it before
+    /// advancing to the next client state.
+    pub fn recv_client_version(self, recv_buf: &mut [u8]) -> Handshake<ServerSendVersion> {
+        // TODO: Handle unwrap.
+        let (_n, client_version) = Version::from_bytes(recv_buf).unwrap();
+        if client_version != self.base.version {
+            todo!()
+            //return Err(Error::RecvClientVersion);
+        }
+        let state = ServerSendVersion;
+
+        Handshake {
+            base: self.base,
+            state,
+        }
+    }
+}
+
+impl Handshake<ServerSendVersion> {
+    /// Send client version data to the server and advance to the next client
+    /// state.
+    pub fn send_server_version(self, send_buf: &mut [u8]) -> Handshake<NoiseHandshake> {
+        // TODO: Handle unwrap.
+        concat_into!(send_buf, &self.base.version.to_bytes().unwrap());
+        let state = NoiseHandshake;
 
         Handshake {
             base: self.base,
@@ -162,6 +230,58 @@ mod tests {
         let version_from_bytes = Version::from_bytes(&version_to_bytes)?;
 
         assert_eq!(version, version_from_bytes.1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn version_exchange_success() -> Result<(), Error> {
+        let hs_client = Handshake::new_client(Version { major: 1, minor: 0 });
+        let hs_server = Handshake::new_server(Version { major: 1, minor: 0 });
+
+        let mut buf = [0; 8];
+
+        let (hs_client, hs_server) = {
+            let mut client_buf = &mut buf[..version_bytes_len()];
+            let hs_client = hs_client.send_client_version(&mut client_buf);
+            let mut server_buf = &mut buf[..2];
+            let hs_server = hs_server.recv_client_version(&mut server_buf);
+            (hs_client, hs_server)
+        };
+
+        let (hs_client, hs_server) = {
+            let mut server_buf = &mut buf[..2];
+            let hs_server = hs_server.send_server_version(&mut server_buf);
+            let mut client_buf = &mut buf[..2];
+            let hs_client = hs_client.recv_server_version(&mut client_buf);
+            (hs_client, hs_server)
+        };
+
+        Ok(())
+    }
+
+    #[test]
+    fn version_exchange_failure() -> Result<(), Error> {
+        let hs_client = Handshake::new_client(Version { major: 1, minor: 0 });
+        let hs_server = Handshake::new_server(Version { major: 2, minor: 7 });
+
+        let mut buf = [0; 8];
+
+        let (hs_client, hs_server) = {
+            let mut client_buf = &mut buf[..version_bytes_len()];
+            let hs_client = hs_client.send_client_version(&mut client_buf);
+            let mut server_buf = &mut buf[..2];
+            let hs_server = hs_server.recv_client_version(&mut server_buf);
+            (hs_client, hs_server)
+        };
+
+        let (hs_client, hs_server) = {
+            let mut server_buf = &mut buf[..2];
+            let hs_server = hs_server.send_server_version(&mut server_buf);
+            let mut client_buf = &mut buf[..2];
+            let hs_client = hs_client.recv_server_version(&mut client_buf);
+            (hs_client, hs_server)
+        };
 
         Ok(())
     }
