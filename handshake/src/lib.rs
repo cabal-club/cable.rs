@@ -1,9 +1,13 @@
+#[macro_use]
+mod utils;
+
 use std::fmt::Display;
 
-use desert::{CountBytes, FromBytes, ToBytes};
+use desert::{FromBytes, ToBytes};
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
+/*
 struct Config {
     role: Role,
     version: Version,
@@ -13,11 +17,94 @@ enum Role {
     Initiator,
     Responder,
 }
+*/
+
+/// The initialization data of a handshake that exists in every state of the
+/// handshake.
+#[derive(Debug)]
+pub struct HandshakeBase {
+    version: Version,
+}
+
+/// The `Handshake` type maintains the different states that happen in each
+/// step of the handshake, allowing it to advance to completion.
+///
+/// The `Handshake` follows the [typestate pattern](http://cliffle.com/blog/rust-typestate/).
+#[derive(Debug)]
+pub struct Handshake<S: State> {
+    pub base: HandshakeBase,
+    pub state: S,
+}
+
+// Client states.
+
+/// The client state that can send the version.
+#[derive(Debug)]
+pub struct ClientSendVersion;
+
+/// The client state that can receive the version.
+#[derive(Debug)]
+pub struct ClientRecvVersion;
+
+// Server states.
+
+/// The server state that can receive the version.
+#[derive(Debug)]
+pub struct ServerRecvVersion;
+
+/// The server state that can receive the version.
+#[derive(Debug)]
+pub struct ServerSendVersion;
+
+/// The `State` trait is used to implement the typestate pattern for the
+/// `Handshake`.
+///
+/// The state machine is as follows:
+///
+/// Client:
+///
+/// - [`ClientSendVersion`] - `send_client_version()` -> [`ClientRecvVersion`]
+/// - [`ClientRecvVersion`] - `recv_server_version()` -> [`NoiseHandshake`]
+///
+/// Server:
+///
+/// - [`ServerRecvVersion`] - `recv_client_version()` -> [`ServerSendVersion`]
+/// - [`ServerSendVersion`] - `send_server_version()` -> [`NoiseHandshake`]
+pub trait State {}
+
+impl State for ClientSendVersion {}
+impl State for ClientRecvVersion {}
+
+impl State for ServerRecvVersion {}
+impl State for ServerSendVersion {}
+
+impl Handshake<ClientSendVersion> {
+    /// Create a new handshake client that can send the version data.
+    pub fn new_client(version: Version) -> Handshake<ClientSendVersion> {
+        let base = HandshakeBase { version };
+        let state = ClientSendVersion;
+
+        Handshake { base, state }
+    }
+
+    /// Send client version data to the server and advance to the next client
+    /// state.
+    pub fn send_client_version(self, send_buf: &mut [u8]) -> Handshake<ClientRecvVersion> {
+        // TODO: Handle unwrap.
+        concat_into!(send_buf, &self.base.version.to_bytes().unwrap());
+        let state = ClientRecvVersion;
+
+        Handshake {
+            base: self.base,
+            state,
+        }
+    }
+}
 
 #[derive(Debug, PartialEq)]
 /// Major and minor identifiers for a particular version of the Cable Handshake
 /// protocol.
-struct Version {
+pub struct Version {
     major: u8,
     minor: u8,
 }
