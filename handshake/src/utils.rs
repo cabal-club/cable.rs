@@ -19,6 +19,7 @@ macro_rules! concat_into {
     };
 }
 
+/*
 macro_rules! concat {
     ( $n:expr, $( $x:expr ),* ) => {
         {
@@ -57,3 +58,4 @@ impl<'a> Buffer<'a> {
         self.buf.len()
     }
 }
+*/
