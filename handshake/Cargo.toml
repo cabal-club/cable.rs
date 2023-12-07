@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 desert = { path = "../desert" }
+log = "0.4.20"
