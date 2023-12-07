@@ -8,6 +8,8 @@ https://github.com/cabal-club/cable/blob/handshake-proto/handshake.md
    - Take a look at other handshake protocols
      - kuska-handshake
 	 - Also look at Rust for Rustaceans
+   - Use the typestate pattern
+     - http://cliffle.com/blog/rust-typestate/
 
 Do we want to provide synchronous and asynchronous versions?
 
