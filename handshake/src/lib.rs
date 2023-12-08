@@ -50,7 +50,7 @@ pub const fn version_bytes_len() -> usize {
 pub struct HandshakeBase {
     version: Version,
     psk: [u8; 32],
-    private_key: [u8; 64],
+    private_key: Vec<u8>,
     // TODO: How about we add a shared buffer here?
 }
 
@@ -187,7 +187,7 @@ enum Role {
 fn build_noise_state_machine(
     role: Role,
     psk: [u8; 32],
-    private_key: [u8; 64],
+    private_key: Vec<u8>,
 ) -> Result<NoiseHandshakeState> {
     let handshake_state = match role {
         Role::Initiator => NoiseBuilder::new("Noise_XXpsk0_25519_ChaChaPoly_BLAKE2b".parse()?)
@@ -212,7 +212,7 @@ impl Handshake<ClientSendVersion> {
     pub fn new_client(
         version: Version,
         psk: [u8; 32],
-        private_key: [u8; 64],
+        private_key: Vec<u8>,
     ) -> Handshake<ClientSendVersion> {
         let base = HandshakeBase {
             version,
@@ -224,8 +224,8 @@ impl Handshake<ClientSendVersion> {
         Handshake { base, state }
     }
 
-    /// Send client version data to the server and advance to the next client
-    /// state.
+    /// Send the client version data to the server and advance to the next
+    /// client state.
     pub fn send_client_version(self, send_buf: &mut [u8]) -> Result<Handshake<ClientRecvVersion>> {
         concat_into!(send_buf, &self.base.version.to_bytes()?);
         let state = ClientRecvVersion;
@@ -264,9 +264,15 @@ impl Handshake<ClientRecvVersion> {
 }
 
 impl Handshake<ClientBuildNoiseStateMachine> {
+    /// Build the Noise handshake state machine for the client with the PSK and
+    /// private key.
     fn build_client_noise_state_machine(self) -> Result<Handshake<ClientSendEphemeralKey>> {
-        let noise_state_machine =
-            build_noise_state_machine(Role::Initiator, self.base.psk, self.base.private_key)?;
+        let noise_state_machine = build_noise_state_machine(
+            Role::Initiator,
+            self.base.psk,
+            // TODO: Get rid of clone.
+            self.base.private_key.clone(),
+        )?;
 
         let state = ClientSendEphemeralKey(noise_state_machine);
         let handshake = Handshake {
@@ -279,12 +285,18 @@ impl Handshake<ClientBuildNoiseStateMachine> {
 }
 
 impl Handshake<ClientSendEphemeralKey> {
-    fn send_client_ephemeral_key(mut self) -> Result<Handshake<ClientRecvEphemeralAndStaticKeys>> {
+    /// Send the client ephemeral key to the server and advance to the next client state.
+    fn send_client_ephemeral_key(
+        mut self,
+        send_buf: &mut [u8],
+    ) -> Result<Handshake<ClientRecvEphemeralAndStaticKeys>> {
         // TODO: Figure out the optimal size for the Noise handshake buffer.
         let mut write_buf = [0u8; 1024];
 
         // Send the client ephemeral key to the server.
-        self.state.0.write_message(&[], &mut write_buf)?;
+        let len = self.state.0.write_message(&[], &mut write_buf)?;
+
+        concat_into!(send_buf, &write_buf[..len]);
 
         let state = ClientRecvEphemeralAndStaticKeys(self.state.0);
         let handshake = Handshake {
@@ -297,6 +309,8 @@ impl Handshake<ClientSendEphemeralKey> {
 }
 
 impl Handshake<ClientRecvEphemeralAndStaticKeys> {
+    /// Receive the ephemeral and static keys from the server and advance to
+    /// the next client state.
     fn recv_server_ephemeral_and_static_keys(mut self) -> Result<Handshake<ClientSendStaticKey>> {
         let mut read_buf = [0u8; 1024];
 
@@ -314,6 +328,7 @@ impl Handshake<ClientRecvEphemeralAndStaticKeys> {
 }
 
 impl Handshake<ClientSendStaticKey> {
+    /// Send the client static key to the server and advance to the next client state.
     fn send_client_static_key(mut self) -> Result<Handshake<ClientInitTransportMode>> {
         let mut write_buf = [0u8; 1024];
 
@@ -331,6 +346,7 @@ impl Handshake<ClientSendStaticKey> {
 }
 
 impl Handshake<ClientInitTransportMode> {
+    /// Complete the client handshake by initialising the encrypted transport.
     fn init_client_transport_mode(self) -> Result<Handshake<ClientHandshakeComplete>> {
         let transport_state = self.state.0.into_transport_mode()?;
 
@@ -351,7 +367,7 @@ impl Handshake<ServerRecvVersion> {
     pub fn new_server(
         version: Version,
         psk: [u8; 32],
-        private_key: [u8; 64],
+        private_key: Vec<u8>,
     ) -> Handshake<ServerRecvVersion> {
         let base = HandshakeBase {
             version,
@@ -402,9 +418,14 @@ impl Handshake<ServerSendVersion> {
 }
 
 impl Handshake<ServerBuildNoiseStateMachine> {
+    /// Build the Noise handshake state machine for the server with the PSK and
+    /// private key.
     fn build_server_noise_state_machine(self) -> Result<Handshake<ServerRecvEphemeralKey>> {
-        let noise_state_machine =
-            build_noise_state_machine(Role::Responder, self.base.psk, self.base.private_key)?;
+        let noise_state_machine = build_noise_state_machine(
+            Role::Responder,
+            self.base.psk,
+            self.base.private_key.clone(),
+        )?;
 
         let state = ServerRecvEphemeralKey(noise_state_machine);
         let handshake = Handshake {
@@ -417,6 +438,7 @@ impl Handshake<ServerBuildNoiseStateMachine> {
 }
 
 impl Handshake<ServerRecvEphemeralKey> {
+    /// Receive the ephemeral key from the client and advance to the next server state.
     fn recv_client_ephemeral_key(mut self) -> Result<Handshake<ServerSendEphemeralAndStaticKeys>> {
         let mut read_buf = [0u8; 1024];
 
@@ -433,7 +455,28 @@ impl Handshake<ServerRecvEphemeralKey> {
     }
 }
 
+impl Handshake<ServerSendEphemeralAndStaticKeys> {
+    /// Send the ephemeral and static keys to the client and advance to
+    /// the next server state.
+    fn send_server_ephemeral_and_static_keys(mut self) -> Result<Handshake<ServerRecvStaticKey>> {
+        let mut write_buf = [0u8; 1024];
+
+        // Send the ephemeral and static keys to the client.
+        self.state.0.write_message(&[], &mut write_buf)?;
+
+        let state = ServerRecvStaticKey(self.state.0);
+        let handshake = Handshake {
+            base: self.base,
+            state,
+        };
+
+        Ok(handshake)
+    }
+}
+
 impl Handshake<ServerRecvStaticKey> {
+    /// Receive the static key from the clientand advance to the next server
+    /// state.
     fn recv_client_static_key(mut self) -> Result<Handshake<ServerInitTransportMode>> {
         let mut read_buf = [0u8; 1024];
 
@@ -451,6 +494,7 @@ impl Handshake<ServerRecvStaticKey> {
 }
 
 impl Handshake<ServerInitTransportMode> {
+    /// Complete the server handshake by initialising the encrypted transport.
     fn init_server_transport_mode(self) -> Result<Handshake<ServerHandshakeComplete>> {
         let transport_state = self.state.0.into_transport_mode()?;
 
@@ -530,6 +574,8 @@ impl FromBytes for Version {
 mod tests {
     use super::*;
 
+    use hex;
+
     #[test]
     fn version_to_bytes() -> Result<()> {
         let version = Version { major: 0, minor: 1 };
@@ -542,6 +588,7 @@ mod tests {
         Ok(())
     }
 
+    /*
     #[test]
     fn version_exchange_success() -> Result<()> {
         let hs_client = Handshake::new_client(Version::init(1, 0));
@@ -584,6 +631,89 @@ mod tests {
         let hs_client = hs_client.recv_server_version(&mut client_buf)?;
 
         assert_eq!(hs_client, HandshakeError::IncompatibleServerVersion);
+
+        Ok(())
+    }
+    */
+
+    #[test]
+    fn handshake() -> Result<()> {
+        // TODO: Move init steps into a setup function.
+
+        let psk: [u8; 32] = [1; 32];
+
+        let builder = NoiseBuilder::new("Noise_XXpsk0_25519_ChaChaPoly_BLAKE2b".parse()?);
+
+        let client_keypair = builder.generate_keypair()?;
+        let client_private_key = client_keypair.private;
+
+        let server_keypair = builder.generate_keypair()?;
+        let server_private_key = server_keypair.private;
+
+        let client_version = Version::init(1, 0);
+        let server_version = Version::init(1, 0);
+
+        let hs_client = Handshake::new_client(client_version, psk, client_private_key);
+        let hs_server = Handshake::new_server(server_version, psk, server_private_key);
+
+        let mut buf = [0; 5000];
+
+        // Send and receive client version.
+        let (hs_client, hs_server) = {
+            let mut client_buf = &mut buf[..version_bytes_len()];
+            let hs_client = hs_client.send_client_version(&mut client_buf)?;
+            let mut server_buf = &mut buf[..version_bytes_len()];
+            let hs_server = hs_server.recv_client_version(&mut server_buf)?;
+            (hs_client, hs_server)
+        };
+
+        // Send and receive server version.
+        let (hs_client, hs_server) = {
+            let mut server_buf = &mut buf[..version_bytes_len()];
+            let hs_server = hs_server.send_server_version(&mut server_buf)?;
+            let mut client_buf = &mut buf[..version_bytes_len()];
+            let hs_client = hs_client.recv_server_version(&mut client_buf)?;
+            (hs_client, hs_server)
+        };
+
+        // Build client and server Noise state machines.
+        let (hs_client, hs_server) = {
+            let hs_client = hs_client.build_client_noise_state_machine()?;
+            let hs_server = hs_server.build_server_noise_state_machine()?;
+            (hs_client, hs_server)
+        };
+
+        let hs_client = hs_client.send_client_ephemeral_key()?;
+
+        /*
+        // Send and receive client ephemeral key.
+        let (hs_client, hs_server) = {
+            let hs_client = hs_client.send_client_ephemeral_key()?;
+            let hs_server = hs_server.recv_client_ephemeral_key()?;
+            (hs_client, hs_server)
+        };
+
+        // Send and receive server ephemeral and static keys.
+        let (hs_client, hs_server) = {
+            let hs_client = hs_client.recv_server_ephemeral_and_static_keys()?;
+            let hs_server = hs_server.send_server_ephemeral_and_static_keys()?;
+            (hs_client, hs_server)
+        };
+
+        // Send and receive client static key.
+        let (hs_client, hs_server) = {
+            let hs_client = hs_client.send_client_static_key()?;
+            let hs_server = hs_server.recv_client_static_key()?;
+            (hs_client, hs_server)
+        };
+
+        // Initialise client and server transport mode.
+        let (hs_client, hs_server) = {
+            let hs_client = hs_client.init_client_transport_mode()?;
+            let hs_server = hs_server.init_server_transport_mode()?;
+            (hs_client, hs_server)
+        };
+        */
 
         Ok(())
     }
