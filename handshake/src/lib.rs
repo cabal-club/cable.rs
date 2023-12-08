@@ -289,7 +289,7 @@ impl Handshake<ClientSendEphemeralKey> {
     fn send_client_ephemeral_key(
         mut self,
         send_buf: &mut [u8],
-    ) -> Result<Handshake<ClientRecvEphemeralAndStaticKeys>> {
+    ) -> Result<(usize, Handshake<ClientRecvEphemeralAndStaticKeys>)> {
         // TODO: Figure out the optimal size for the Noise handshake buffer.
         let mut write_buf = [0u8; 1024];
 
@@ -304,18 +304,21 @@ impl Handshake<ClientSendEphemeralKey> {
             state,
         };
 
-        Ok(handshake)
+        Ok((len, handshake))
     }
 }
 
 impl Handshake<ClientRecvEphemeralAndStaticKeys> {
     /// Receive the ephemeral and static keys from the server and advance to
     /// the next client state.
-    fn recv_server_ephemeral_and_static_keys(mut self) -> Result<Handshake<ClientSendStaticKey>> {
+    fn recv_server_ephemeral_and_static_keys(
+        mut self,
+        recv_buf: &mut [u8],
+    ) -> Result<Handshake<ClientSendStaticKey>> {
         let mut read_buf = [0u8; 1024];
 
         // Receive the ephemeral and static keys from the server.
-        self.state.0.read_message(&[], &mut read_buf)?;
+        self.state.0.read_message(&recv_buf, &mut read_buf)?;
 
         let state = ClientSendStaticKey(self.state.0);
         let handshake = Handshake {
@@ -329,11 +332,16 @@ impl Handshake<ClientRecvEphemeralAndStaticKeys> {
 
 impl Handshake<ClientSendStaticKey> {
     /// Send the client static key to the server and advance to the next client state.
-    fn send_client_static_key(mut self) -> Result<Handshake<ClientInitTransportMode>> {
+    fn send_client_static_key(
+        mut self,
+        send_buf: &mut [u8],
+    ) -> Result<(usize, Handshake<ClientInitTransportMode>)> {
         let mut write_buf = [0u8; 1024];
 
         // Send the client static key to the server.
-        self.state.0.write_message(&[], &mut write_buf)?;
+        let len = self.state.0.write_message(&[], &mut write_buf)?;
+
+        concat_into!(send_buf, &write_buf[..len]);
 
         let state = ClientInitTransportMode(self.state.0);
         let handshake = Handshake {
@@ -341,7 +349,7 @@ impl Handshake<ClientSendStaticKey> {
             state,
         };
 
-        Ok(handshake)
+        Ok((len, handshake))
     }
 }
 
@@ -439,11 +447,14 @@ impl Handshake<ServerBuildNoiseStateMachine> {
 
 impl Handshake<ServerRecvEphemeralKey> {
     /// Receive the ephemeral key from the client and advance to the next server state.
-    fn recv_client_ephemeral_key(mut self) -> Result<Handshake<ServerSendEphemeralAndStaticKeys>> {
+    fn recv_client_ephemeral_key(
+        mut self,
+        recv_buf: &mut [u8],
+    ) -> Result<Handshake<ServerSendEphemeralAndStaticKeys>> {
         let mut read_buf = [0u8; 1024];
 
         // Receive the ephemeral key from the client.
-        self.state.0.read_message(&[], &mut read_buf)?;
+        self.state.0.read_message(recv_buf, &mut read_buf)?;
 
         let state = ServerSendEphemeralAndStaticKeys(self.state.0);
         let handshake = Handshake {
@@ -458,11 +469,16 @@ impl Handshake<ServerRecvEphemeralKey> {
 impl Handshake<ServerSendEphemeralAndStaticKeys> {
     /// Send the ephemeral and static keys to the client and advance to
     /// the next server state.
-    fn send_server_ephemeral_and_static_keys(mut self) -> Result<Handshake<ServerRecvStaticKey>> {
+    fn send_server_ephemeral_and_static_keys(
+        mut self,
+        send_buf: &mut [u8],
+    ) -> Result<(usize, Handshake<ServerRecvStaticKey>)> {
         let mut write_buf = [0u8; 1024];
 
         // Send the ephemeral and static keys to the client.
-        self.state.0.write_message(&[], &mut write_buf)?;
+        let len = self.state.0.write_message(&[], &mut write_buf)?;
+
+        concat_into!(send_buf, &write_buf[..len]);
 
         let state = ServerRecvStaticKey(self.state.0);
         let handshake = Handshake {
@@ -470,18 +486,21 @@ impl Handshake<ServerSendEphemeralAndStaticKeys> {
             state,
         };
 
-        Ok(handshake)
+        Ok((len, handshake))
     }
 }
 
 impl Handshake<ServerRecvStaticKey> {
     /// Receive the static key from the clientand advance to the next server
     /// state.
-    fn recv_client_static_key(mut self) -> Result<Handshake<ServerInitTransportMode>> {
+    fn recv_client_static_key(
+        mut self,
+        recv_buf: &mut [u8],
+    ) -> Result<Handshake<ServerInitTransportMode>> {
         let mut read_buf = [0u8; 1024];
 
         // Receive the static key to the client.
-        self.state.0.read_message(&[], &mut read_buf)?;
+        self.state.0.read_message(recv_buf, &mut read_buf)?;
 
         let state = ServerInitTransportMode(self.state.0);
         let handshake = Handshake {
@@ -574,8 +593,6 @@ impl FromBytes for Version {
 mod tests {
     use super::*;
 
-    use hex;
-
     #[test]
     fn version_to_bytes() -> Result<()> {
         let version = Version { major: 0, minor: 1 };
@@ -656,7 +673,7 @@ mod tests {
         let hs_client = Handshake::new_client(client_version, psk, client_private_key);
         let hs_server = Handshake::new_server(server_version, psk, server_private_key);
 
-        let mut buf = [0; 5000];
+        let mut buf = [0; 1024];
 
         // Send and receive client version.
         let (hs_client, hs_server) = {
@@ -683,37 +700,49 @@ mod tests {
             (hs_client, hs_server)
         };
 
-        let hs_client = hs_client.send_client_ephemeral_key()?;
-
-        /*
         // Send and receive client ephemeral key.
         let (hs_client, hs_server) = {
-            let hs_client = hs_client.send_client_ephemeral_key()?;
-            let hs_server = hs_server.recv_client_ephemeral_key()?;
+            let (ephemeral_key_bytes_len, hs_client) =
+                hs_client.send_client_ephemeral_key(&mut buf)?;
+            let mut server_buf = &mut buf[..ephemeral_key_bytes_len];
+            let hs_server = hs_server.recv_client_ephemeral_key(&mut server_buf)?;
             (hs_client, hs_server)
         };
 
         // Send and receive server ephemeral and static keys.
         let (hs_client, hs_server) = {
-            let hs_client = hs_client.recv_server_ephemeral_and_static_keys()?;
-            let hs_server = hs_server.send_server_ephemeral_and_static_keys()?;
+            let (ephemeral_and_static_key_bytes_len, hs_server) =
+                hs_server.send_server_ephemeral_and_static_keys(&mut buf)?;
+            let mut client_buf = &mut buf[..ephemeral_and_static_key_bytes_len];
+            let hs_client = hs_client.recv_server_ephemeral_and_static_keys(&mut client_buf)?;
             (hs_client, hs_server)
         };
 
         // Send and receive client static key.
         let (hs_client, hs_server) = {
-            let hs_client = hs_client.send_client_static_key()?;
-            let hs_server = hs_server.recv_client_static_key()?;
+            let (static_key_bytes_len, hs_client) = hs_client.send_client_static_key(&mut buf)?;
+            let mut server_buf = &mut buf[..static_key_bytes_len];
+            let hs_server = hs_server.recv_client_static_key(&mut server_buf)?;
             (hs_client, hs_server)
         };
 
         // Initialise client and server transport mode.
-        let (hs_client, hs_server) = {
-            let hs_client = hs_client.init_client_transport_mode()?;
-            let hs_server = hs_server.init_server_transport_mode()?;
-            (hs_client, hs_server)
-        };
-        */
+        let mut hs_client = hs_client.init_client_transport_mode()?;
+        let mut hs_server = hs_server.init_server_transport_mode()?;
+
+        // Send and receive a message.
+        let msg_text = b"An impeccably polite pangolin";
+
+        let write_len = hs_client.state.0.write_message(msg_text, &mut buf).unwrap();
+
+        let mut read_buf = [0u8; 48];
+        let read_len = hs_server
+            .state
+            .0
+            .read_message(&buf[..write_len], &mut read_buf)
+            .unwrap();
+
+        assert_eq!(msg_text, &read_buf[..read_len]);
 
         Ok(())
     }
