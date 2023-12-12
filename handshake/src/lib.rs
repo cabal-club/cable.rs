@@ -51,7 +51,7 @@ pub struct HandshakeBase {
     version: Version,
     psk: [u8; 32],
     private_key: Vec<u8>,
-    // TODO: How about we add a shared buffer here?
+    // remote_static_key: Option<Vec<u8>>,
 }
 
 /// The `Handshake` type maintains the different states that happen in each
@@ -94,10 +94,6 @@ pub struct ClientSendStaticKey(NoiseHandshakeState);
 #[derive(Debug)]
 pub struct ClientInitTransportMode(NoiseHandshakeState);
 
-/// The client state that has completed the handshake.
-#[derive(Debug)]
-pub struct ClientHandshakeComplete(NoiseTransportState);
-
 // Server states. The server acts as the handshake responder.
 
 /// The server state that can receive the version.
@@ -128,9 +124,11 @@ pub struct ServerRecvStaticKey(NoiseHandshakeState);
 #[derive(Debug)]
 pub struct ServerInitTransportMode(NoiseHandshakeState);
 
-/// The server state that has completed the handshake.
+// Shared client / server states.
+
+/// The client / server state that has completed the handshake.
 #[derive(Debug)]
-pub struct ServerHandshakeComplete(NoiseTransportState);
+pub struct HandshakeComplete(NoiseTransportState);
 
 /// The `State` trait is used to implement the typestate pattern for the
 /// `Handshake`.
@@ -145,7 +143,7 @@ pub struct ServerHandshakeComplete(NoiseTransportState);
 /// - [`ClientSendEphemeralKey`] - `send_client_ephemeral_key()` -> [`ClientRecvEphemeralAndStaticKeys`]
 /// - [`ClientRecvEphemeralAndStaticKeys`] - `recv_server_ephemeral_and_static_keys()` -> [`ClientSendStaticKey`]
 /// - [`ClientSendStaticKey`] - `send_client_static_key()` -> [`ClientInitTransportMode`]
-/// - [`ClientInitTransportMode`] - `init_client_transport_mode()` -> [`ClientHandshakeComplete`]
+/// - [`ClientInitTransportMode`] - `init_client_transport_mode()` -> [`HandshakeComplete`]
 ///
 /// Server:
 ///
@@ -155,7 +153,7 @@ pub struct ServerHandshakeComplete(NoiseTransportState);
 /// - [`ServerRecvEphemeralKey`] - `recv_client_ephemeral_key()` -> [`ServerSendEphemeralAndStaticKeys`]
 /// - [`ServerSendEphemeralAndStaticKeys`] - `send_server_ephemeral_and_static_keys()` -> [`ServerRecvStaticKey`]
 /// - [`ServerRecvStaticKey`] - `recv_client_static_key()` -> [`ServerInitTransportMode`]
-/// - [`ServerInitTransportMode`] - `init_server_transport_mode()` -> [`ServerHandshakeComplete`]
+/// - [`ServerInitTransportMode`] - `init_server_transport_mode()` -> [`HandshakeComplete`]
 pub trait State {}
 
 impl State for ClientSendVersion {}
@@ -165,7 +163,6 @@ impl State for ClientSendEphemeralKey {}
 impl State for ClientRecvEphemeralAndStaticKeys {}
 impl State for ClientSendStaticKey {}
 impl State for ClientInitTransportMode {}
-impl State for ClientHandshakeComplete {}
 
 impl State for ServerRecvVersion {}
 impl State for ServerSendVersion {}
@@ -174,7 +171,8 @@ impl State for ServerRecvEphemeralKey {}
 impl State for ServerSendEphemeralAndStaticKeys {}
 impl State for ServerRecvStaticKey {}
 impl State for ServerInitTransportMode {}
-impl State for ServerHandshakeComplete {}
+
+impl State for HandshakeComplete {}
 
 #[derive(Debug)]
 enum Role {
@@ -318,7 +316,7 @@ impl Handshake<ClientRecvEphemeralAndStaticKeys> {
         let mut read_buf = [0u8; 1024];
 
         // Receive the ephemeral and static keys from the server.
-        self.state.0.read_message(&recv_buf, &mut read_buf)?;
+        self.state.0.read_message(recv_buf, &mut read_buf)?;
 
         let state = ClientSendStaticKey(self.state.0);
         let handshake = Handshake {
@@ -355,10 +353,10 @@ impl Handshake<ClientSendStaticKey> {
 
 impl Handshake<ClientInitTransportMode> {
     /// Complete the client handshake by initialising the encrypted transport.
-    fn init_client_transport_mode(self) -> Result<Handshake<ClientHandshakeComplete>> {
+    fn init_client_transport_mode(self) -> Result<Handshake<HandshakeComplete>> {
         let transport_state = self.state.0.into_transport_mode()?;
 
-        let state = ClientHandshakeComplete(transport_state);
+        let state = HandshakeComplete(transport_state);
         let handshake = Handshake {
             base: self.base,
             state,
@@ -514,16 +512,34 @@ impl Handshake<ServerRecvStaticKey> {
 
 impl Handshake<ServerInitTransportMode> {
     /// Complete the server handshake by initialising the encrypted transport.
-    fn init_server_transport_mode(self) -> Result<Handshake<ServerHandshakeComplete>> {
+    fn init_server_transport_mode(self) -> Result<Handshake<HandshakeComplete>> {
         let transport_state = self.state.0.into_transport_mode()?;
 
-        let state = ServerHandshakeComplete(transport_state);
+        let state = HandshakeComplete(transport_state);
         let handshake = Handshake {
             base: self.base,
             state,
         };
 
         Ok(handshake)
+    }
+}
+
+impl Handshake<HandshakeComplete> {
+    /// Read an encrypted message from the receive buffer, decrypt and write it
+    /// to the message buffer - returning the byte size of the written payload.
+    fn read_message(mut self, recv_buf: &[u8], msg: &mut [u8]) -> Result<usize> {
+        let len = self.state.0.read_message(recv_buf, msg)?;
+
+        Ok(len)
+    }
+
+    /// Encrypt and write a message to the send buffer, returning the byte size
+    /// of the written payload.
+    fn write_message(mut self, msg: &[u8], send_buf: &mut [u8]) -> Result<usize> {
+        let len = self.state.0.write_message(msg, send_buf)?;
+
+        Ok(len)
     }
 }
 
@@ -593,6 +609,29 @@ impl FromBytes for Version {
 mod tests {
     use super::*;
 
+    fn init_handshakers(
+        client_version: (u8, u8),
+        server_version: (u8, u8),
+    ) -> Result<(Handshake<ClientSendVersion>, Handshake<ServerRecvVersion>)> {
+        let psk: [u8; 32] = [1; 32];
+
+        let builder = NoiseBuilder::new("Noise_XXpsk0_25519_ChaChaPoly_BLAKE2b".parse()?);
+
+        let client_keypair = builder.generate_keypair()?;
+        let client_private_key = client_keypair.private;
+
+        let server_keypair = builder.generate_keypair()?;
+        let server_private_key = server_keypair.private;
+
+        let client_version = Version::init(client_version.0, client_version.1);
+        let server_version = Version::init(server_version.0, server_version.1);
+
+        let hs_client = Handshake::new_client(client_version, psk, client_private_key);
+        let hs_server = Handshake::new_server(server_version, psk, server_private_key);
+
+        Ok((hs_client, hs_server))
+    }
+
     #[test]
     fn version_to_bytes() -> Result<()> {
         let version = Version { major: 0, minor: 1 };
@@ -605,11 +644,9 @@ mod tests {
         Ok(())
     }
 
-    /*
     #[test]
     fn version_exchange_success() -> Result<()> {
-        let hs_client = Handshake::new_client(Version::init(1, 0));
-        let hs_server = Handshake::new_server(Version::init(1, 0));
+        let (hs_client, hs_server) = init_handshakers((1, 0), (1, 0))?;
 
         let mut buf = [0; 8];
 
@@ -620,18 +657,19 @@ mod tests {
         let hs_server = hs_server.recv_client_version(&mut server_buf)?;
 
         let mut server_buf = &mut buf[..version_bytes_len()];
-        let hs_server = hs_server.send_server_version(&mut server_buf)?;
+        hs_server.send_server_version(&mut server_buf)?;
 
         let mut client_buf = &mut buf[..version_bytes_len()];
-        let hs_client = hs_client.recv_server_version(&mut client_buf)?;
+        hs_client.recv_server_version(&mut client_buf)?;
 
         Ok(())
     }
 
+    /* Refuses to compile.
+
     #[test]
     fn version_exchange_failure() -> Result<()> {
-        let hs_client = Handshake::new_client(Version::init(1, 0));
-        let hs_server = Handshake::new_server(Version::init(3, 7));
+        let (hs_client, hs_server) = init_handshakers((3, 7), (1, 0))?;
 
         let mut buf = [0; 8];
 
@@ -655,24 +693,10 @@ mod tests {
 
     #[test]
     fn handshake() -> Result<()> {
-        // TODO: Move init steps into a setup function.
+        // Build the handshake client and server.
+        let (hs_client, hs_server) = init_handshakers((1, 0), (1, 0))?;
 
-        let psk: [u8; 32] = [1; 32];
-
-        let builder = NoiseBuilder::new("Noise_XXpsk0_25519_ChaChaPoly_BLAKE2b".parse()?);
-
-        let client_keypair = builder.generate_keypair()?;
-        let client_private_key = client_keypair.private;
-
-        let server_keypair = builder.generate_keypair()?;
-        let server_private_key = server_keypair.private;
-
-        let client_version = Version::init(1, 0);
-        let server_version = Version::init(1, 0);
-
-        let hs_client = Handshake::new_client(client_version, psk, client_private_key);
-        let hs_server = Handshake::new_server(server_version, psk, server_private_key);
-
+        // Define a shared buffer for sending and receiving messages.
         let mut buf = [0; 1024];
 
         // Send and receive client version.
@@ -727,22 +751,18 @@ mod tests {
         };
 
         // Initialise client and server transport mode.
-        let mut hs_client = hs_client.init_client_transport_mode()?;
-        let mut hs_server = hs_server.init_server_transport_mode()?;
+        let hs_client = hs_client.init_client_transport_mode()?;
+        let hs_server = hs_server.init_server_transport_mode()?;
 
-        // Send and receive a message.
+        // Write an encrypted message.
         let msg_text = b"An impeccably polite pangolin";
+        let write_len = hs_client.write_message(msg_text, &mut buf)?;
 
-        let write_len = hs_client.state.0.write_message(msg_text, &mut buf).unwrap();
+        // Read an encrypted message.
+        let mut msg_buf = [0u8; 48];
+        let read_len = hs_server.read_message(&buf[..write_len], &mut msg_buf)?;
 
-        let mut read_buf = [0u8; 48];
-        let read_len = hs_server
-            .state
-            .0
-            .read_message(&buf[..write_len], &mut read_buf)
-            .unwrap();
-
-        assert_eq!(msg_text, &read_buf[..read_len]);
+        assert_eq!(msg_text, &msg_buf[..read_len]);
 
         Ok(())
     }
