@@ -1,3 +1,5 @@
+#![doc=include_str!("../README.md")]
+
 #[macro_use]
 mod utils;
 
@@ -16,8 +18,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, PartialEq)]
 pub enum HandshakeError {
     /// The received major server version does not match that of the client.
-    // TODO: Add `received` and `expected` context.
-    IncompatibleServerVersion,
+    IncompatibleServerVersion { received: u8, expected: u8 },
 }
 
 impl std::error::Error for HandshakeError {}
@@ -25,10 +26,11 @@ impl std::error::Error for HandshakeError {}
 impl Display for HandshakeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            HandshakeError::IncompatibleServerVersion => {
+            HandshakeError::IncompatibleServerVersion { received, expected } => {
                 write!(
                     f,
-                    "Received major server version does not match major client version"
+                    "Received server major version `{}` does not match client major version `{}`",
+                    received, expected
                 )
             }
         }
@@ -44,6 +46,68 @@ pub const fn version_bytes_len() -> usize {
     VERSION_BYTES_LEN
 }
 
+#[derive(Debug, PartialEq)]
+/// Major and minor identifiers for a particular version of the Cable Handshake
+/// protocol.
+pub struct Version {
+    major: u8,
+    minor: u8,
+}
+
+impl Version {
+    /// Initialise a new version instance.
+    pub fn init(major: u8, minor: u8) -> Self {
+        Version { major, minor }
+    }
+
+    /// Return the major version identifier.
+    pub fn major(&self) -> u8 {
+        self.major
+    }
+
+    /// Return the minor version identifier.
+    pub fn minor(&self) -> u8 {
+        self.minor
+    }
+}
+
+impl Display for Version {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}", self.major, self.minor)
+    }
+}
+
+impl ToBytes for Version {
+    /// Convert a `Version` data type to bytes.
+    fn to_bytes(&self) -> Result<Vec<u8>> {
+        let mut buf = vec![0; 2];
+        self.write_bytes(&mut buf)?;
+
+        Ok(buf)
+    }
+
+    /// Write bytes to the given buffer (mutable byte array).
+    fn write_bytes(&self, buf: &mut [u8]) -> Result<usize> {
+        buf[0..1].copy_from_slice(&self.major.to_be_bytes());
+        buf[1..2].copy_from_slice(&self.minor.to_be_bytes());
+
+        Ok(2)
+    }
+}
+
+impl FromBytes for Version {
+    /// Read bytes from the given buffer (byte array), returning the total
+    /// number of bytes and the decoded `Version` type.
+    fn from_bytes(buf: &[u8]) -> Result<(usize, Self)> {
+        let major = buf[0];
+        let minor = buf[1];
+
+        let version = Version { major, minor };
+
+        Ok((2, version))
+    }
+}
+
 /// The initialization data of a handshake that exists in every state of the
 /// handshake.
 #[derive(Debug, PartialEq)]
@@ -51,7 +115,7 @@ pub struct HandshakeBase {
     version: Version,
     psk: [u8; 32],
     private_key: Vec<u8>,
-    // remote_static_key: Option<Vec<u8>>,
+    // TODO: remote_static_key: Option<Vec<u8>>,
 }
 
 /// The `Handshake` type maintains the different states that happen in each
@@ -62,6 +126,12 @@ pub struct HandshakeBase {
 pub struct Handshake<S: State> {
     pub base: HandshakeBase,
     pub state: S,
+}
+
+#[derive(Debug)]
+enum Role {
+    Initiator,
+    Responder,
 }
 
 // Client states. The client acts as the handshake initiator.
@@ -174,12 +244,6 @@ impl State for ServerInitTransportMode {}
 
 impl State for HandshakeComplete {}
 
-#[derive(Debug)]
-enum Role {
-    Initiator,
-    Responder,
-}
-
 /// Initialise the Noise handshake state machine according to the given role,
 /// ie. initiator or responder.
 fn build_noise_state_machine(
@@ -249,7 +313,11 @@ impl Handshake<ClientRecvVersion> {
         let (_n, server_version) = Version::from_bytes(recv_buf)?;
         if server_version.major != self.base.version.major {
             warn!("Received incompatible major version from handshake responder");
-            return Err(HandshakeError::IncompatibleServerVersion.into());
+            return Err(HandshakeError::IncompatibleServerVersion {
+                received: server_version.major,
+                expected: self.base.version.major,
+            }
+            .into());
         }
         let state = ClientBuildNoiseStateMachine;
         let handshake = Handshake {
@@ -268,7 +336,7 @@ impl Handshake<ClientBuildNoiseStateMachine> {
         let noise_state_machine = build_noise_state_machine(
             Role::Initiator,
             self.base.psk,
-            // TODO: Get rid of clone.
+            // TODO: Can we avoid this clone?
             self.base.private_key.clone(),
         )?;
 
@@ -543,68 +611,6 @@ impl Handshake<HandshakeComplete> {
     }
 }
 
-#[derive(Debug, PartialEq)]
-/// Major and minor identifiers for a particular version of the Cable Handshake
-/// protocol.
-pub struct Version {
-    major: u8,
-    minor: u8,
-}
-
-impl Version {
-    /// Initialise a new version instance.
-    pub fn init(major: u8, minor: u8) -> Self {
-        Version { major, minor }
-    }
-
-    /// Return the major version identifier.
-    pub fn major(&self) -> u8 {
-        self.major
-    }
-
-    /// Return the minor version identifier.
-    pub fn minor(&self) -> u8 {
-        self.minor
-    }
-}
-
-impl Display for Version {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}.{}", self.major, self.minor)
-    }
-}
-
-impl ToBytes for Version {
-    /// Convert a `Version` data type to bytes.
-    fn to_bytes(&self) -> Result<Vec<u8>> {
-        let mut buf = vec![0; 2];
-        self.write_bytes(&mut buf)?;
-
-        Ok(buf)
-    }
-
-    /// Write bytes to the given buffer (mutable byte array).
-    fn write_bytes(&self, buf: &mut [u8]) -> Result<usize> {
-        buf[0..1].copy_from_slice(&self.major.to_be_bytes());
-        buf[1..2].copy_from_slice(&self.minor.to_be_bytes());
-
-        Ok(2)
-    }
-}
-
-impl FromBytes for Version {
-    /// Read bytes from the given buffer (byte array), returning the total
-    /// number of bytes and the decoded `Version` type.
-    fn from_bytes(buf: &[u8]) -> Result<(usize, Self)> {
-        let major = buf[0];
-        let minor = buf[1];
-
-        let version = Version { major, minor };
-
-        Ok((2, version))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -665,8 +671,7 @@ mod tests {
         Ok(())
     }
 
-    /* Refuses to compile.
-
+    /* TODO: Fix this test.
     #[test]
     fn version_exchange_failure() -> Result<()> {
         let (hs_client, hs_server) = init_handshakers((3, 7), (1, 0))?;
@@ -685,7 +690,13 @@ mod tests {
         let mut client_buf = &mut buf[..version_bytes_len()];
         let hs_client = hs_client.recv_server_version(&mut client_buf)?;
 
-        assert_eq!(hs_client, HandshakeError::IncompatibleServerVersion);
+        assert_eq!(
+            hs_client,
+            HandshakeError::IncompatibleServerVersion {
+                received: 1,
+                expected: 3
+            }
+        );
 
         Ok(())
     }
