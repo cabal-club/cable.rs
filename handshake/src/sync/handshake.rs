@@ -8,6 +8,7 @@ use crate::{
     version_bytes_len, Handshake, HandshakeComplete, Result, Version,
 };
 
+/// Initiate the handshake in a synchronous manner and run to completion.
 pub fn handshake_client<T: Read + Write>(
     stream: &mut T,
     version: Version,
@@ -47,6 +48,50 @@ pub fn handshake_client<T: Read + Write>(
     stream.write_all(send_buf)?;
 
     let handshake = handshake.init_client_transport_mode()?;
+
+    Ok(handshake)
+}
+
+/// Respond to a handshake in a synchronous manner and run to completion.
+pub fn handshake_server<T: Read + Write>(
+    stream: &mut T,
+    version: Version,
+    psk: [u8; 32],
+    private_key: Vec<u8>,
+) -> Result<Handshake<HandshakeComplete>> {
+    let mut buf = [0; 256];
+
+    let handshake = Handshake::new_server(version, psk, private_key);
+
+    // Receive version.
+    let recv_buf = &mut buf[..version_bytes_len()];
+    stream.read_exact(recv_buf)?;
+    let handshake = handshake.recv_client_version(recv_buf)?;
+
+    // Send version.
+    let send_buf = &mut buf[..version_bytes_len()];
+    let handshake = handshake.send_server_version(send_buf)?;
+    stream.write_all(send_buf)?;
+
+    // Build Noise state machine.
+    let handshake = handshake.build_server_noise_state_machine()?;
+
+    // Receive ephemeral key.
+    let recv_buf = &mut buf[..ephemeral_key_bytes_len()];
+    stream.read_exact(recv_buf)?;
+    let handshake = handshake.recv_client_ephemeral_key(recv_buf)?;
+
+    // Send ephemeral and static keys.
+    let send_buf = &mut buf[..ephemeral_and_static_key_bytes_len()];
+    let handshake = handshake.send_server_ephemeral_and_static_key(send_buf)?;
+    stream.write_all(send_buf)?;
+
+    // Receive static key.
+    let recv_buf = &mut buf[..static_key_bytes_len()];
+    stream.read_exact(recv_buf)?;
+    let handshake = handshake.recv_client_static_key(recv_buf)?;
+
+    let handshake = handshake.init_server_transport_mode()?;
 
     Ok(handshake)
 }
