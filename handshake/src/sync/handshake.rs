@@ -1,7 +1,4 @@
-use std::{
-    convert, io,
-    io::{Read, Write},
-};
+use std::io::{Read, Write};
 
 use crate::{
     ephemeral_and_static_key_bytes_len, ephemeral_key_bytes_len, static_key_bytes_len,

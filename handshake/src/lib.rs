@@ -3,6 +3,7 @@
 mod sync;
 #[macro_use]
 mod utils;
+mod version;
 
 use std::fmt::{self, Display};
 
@@ -12,6 +13,8 @@ use snow::{
     Builder as NoiseBuilder, HandshakeState as NoiseHandshakeState,
     TransportState as NoiseTransportState,
 };
+
+use crate::version::Version;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 pub type Result<T> = std::result::Result<T, Error>;
@@ -72,68 +75,6 @@ pub const STATIC_KEY_BYTES_LEN: usize = 64;
 /// during the static key exchange.
 pub const fn static_key_bytes_len() -> usize {
     STATIC_KEY_BYTES_LEN
-}
-
-#[derive(Debug, PartialEq)]
-/// Major and minor identifiers for a particular version of the Cable Handshake
-/// protocol.
-pub struct Version {
-    major: u8,
-    minor: u8,
-}
-
-impl Version {
-    /// Initialise a new version instance.
-    pub fn init(major: u8, minor: u8) -> Self {
-        Version { major, minor }
-    }
-
-    /// Return the major version identifier.
-    pub fn major(&self) -> u8 {
-        self.major
-    }
-
-    /// Return the minor version identifier.
-    pub fn minor(&self) -> u8 {
-        self.minor
-    }
-}
-
-impl Display for Version {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}.{}", self.major, self.minor)
-    }
-}
-
-impl ToBytes for Version {
-    /// Convert a `Version` data type to bytes.
-    fn to_bytes(&self) -> Result<Vec<u8>> {
-        let mut buf = vec![0; 2];
-        self.write_bytes(&mut buf)?;
-
-        Ok(buf)
-    }
-
-    /// Write bytes to the given buffer (mutable byte array).
-    fn write_bytes(&self, buf: &mut [u8]) -> Result<usize> {
-        buf[0..1].copy_from_slice(&self.major.to_be_bytes());
-        buf[1..2].copy_from_slice(&self.minor.to_be_bytes());
-
-        Ok(2)
-    }
-}
-
-impl FromBytes for Version {
-    /// Read bytes from the given buffer (byte array), returning the total
-    /// number of bytes and the decoded `Version` type.
-    fn from_bytes(buf: &[u8]) -> Result<(usize, Self)> {
-        let major = buf[0];
-        let minor = buf[1];
-
-        let version = Version { major, minor };
-
-        Ok((2, version))
-    }
 }
 
 /// The initialization data of a handshake that exists in every state of the
@@ -339,11 +280,11 @@ impl Handshake<ClientRecvVersion> {
         recv_buf: &mut [u8],
     ) -> Result<Handshake<ClientBuildNoiseStateMachine>> {
         let (_n, server_version) = Version::from_bytes(recv_buf)?;
-        if server_version.major != self.base.version.major {
+        if server_version.major() != self.base.version.major() {
             warn!("Received incompatible major version from handshake responder");
             return Err(HandshakeError::IncompatibleServerVersion {
-                received: server_version.major,
-                expected: self.base.version.major,
+                received: server_version.major(),
+                expected: self.base.version.major(),
             }
             .into());
         }
@@ -489,7 +430,7 @@ impl Handshake<ServerRecvVersion> {
     /// advancing to the next client state.
     pub fn recv_client_version(self, recv_buf: &mut [u8]) -> Result<Handshake<ServerSendVersion>> {
         let (_n, client_version) = Version::from_bytes(recv_buf)?;
-        if client_version.major != self.base.version.major {
+        if client_version.major() != self.base.version.major() {
             warn!("Received incompatible major version from handshake initiator");
             // There is no error returned here because the server must still
             // respond with it's own version data. The client will then error
