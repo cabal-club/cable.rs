@@ -14,7 +14,7 @@ use snow::{
     TransportState as NoiseTransportState,
 };
 
-use crate::version::Version;
+pub use crate::version::Version;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 pub type Result<T> = std::result::Result<T, Error>;
@@ -69,6 +69,9 @@ pub const fn ephemeral_and_static_key_bytes_len() -> usize {
 }
 
 /// Size of the static key.
+///
+/// In the context of the Cable Handshake implementation, this value is the
+/// private key of the author keypair.
 pub const STATIC_KEY_BYTES_LEN: usize = 64;
 
 /// Number of bytes that will be written to the `send_buf` and `recv_buf`
@@ -77,14 +80,22 @@ pub const fn static_key_bytes_len() -> usize {
     STATIC_KEY_BYTES_LEN
 }
 
+/// Size of the public key received via the static key exchange.
+pub const PUBLIC_KEY_BYTES_LEN: usize = 32;
+
 /// The initialization data of a handshake that exists in every state of the
 /// handshake.
 #[derive(Debug, PartialEq)]
 pub struct HandshakeBase {
     version: Version,
     psk: [u8; 32],
+    // TODO: Could this rather be a sized array?
+    //private_key: [u8; 64],
     private_key: Vec<u8>,
-    // TODO: remote_static_key: Option<Vec<u8>>,
+    // TODO: Is this field necessary?
+    // We could rather just call `get_remote_static()` on `HandshakeState`
+    // or `TransportState`.
+    pub remote_static_key: Option<[u8; PUBLIC_KEY_BYTES_LEN]>,
 }
 
 /// The `Handshake` type maintains the different states that happen in each
@@ -249,6 +260,7 @@ impl Handshake<ClientSendVersion> {
             version,
             psk,
             private_key,
+            remote_static_key: None,
         };
         let state = ClientSendVersion;
 
@@ -352,10 +364,17 @@ impl Handshake<ClientRecvEphemeralAndStaticKey> {
         mut self,
         recv_buf: &mut [u8],
     ) -> Result<Handshake<ClientSendStaticKey>> {
-        let mut read_buf = [0u8; 1024];
+        let mut read_buf = [0u8; ephemeral_and_static_key_bytes_len()];
 
         // Receive the ephemeral and static keys from the server.
         self.state.0.read_message(recv_buf, &mut read_buf)?;
+
+        // Set the value of the server's static key.
+        self.base.remote_static_key = match self.state.0.get_remote_static() {
+            // Convert the key from a slice (`&[u8]`) to a sized array.
+            Some(key) => Some(key.try_into()?),
+            None => None,
+        };
 
         let state = ClientSendStaticKey(self.state.0);
         let handshake = Handshake {
@@ -374,7 +393,7 @@ impl Handshake<ClientSendStaticKey> {
         mut self,
         send_buf: &mut [u8],
     ) -> Result<Handshake<ClientInitTransportMode>> {
-        let mut write_buf = [0u8; 1024];
+        let mut write_buf = [0u8; static_key_bytes_len()];
 
         // Send the client static key to the server.
         let len = self.state.0.write_message(&[], &mut write_buf)?;
@@ -420,6 +439,7 @@ impl Handshake<ServerRecvVersion> {
             version,
             psk,
             private_key,
+            remote_static_key: None,
         };
         let state = ServerRecvVersion;
 
@@ -545,6 +565,13 @@ impl Handshake<ServerRecvStaticKey> {
         // Receive the static key to the client.
         self.state.0.read_message(recv_buf, &mut read_buf)?;
 
+        // Set the value of the client's static key.
+        self.base.remote_static_key = match self.state.0.get_remote_static() {
+            // Convert the key from a slice (`&[u8]`) to a sized array.
+            Some(key) => Some(key.try_into()?),
+            None => None,
+        };
+
         let state = ServerInitTransportMode(self.state.0);
         let handshake = Handshake {
             base: self.base,
@@ -575,7 +602,7 @@ impl Handshake<HandshakeComplete> {
     /// Read an encrypted message from the receive buffer, decrypt and write it
     /// to the message buffer - returning the byte size of the written payload.
     // TODO: Make this function private once `basic` example is correct.
-    pub fn read_message(mut self, recv_buf: &[u8], msg: &mut [u8]) -> Result<usize> {
+    pub fn read_message(&mut self, recv_buf: &[u8], msg: &mut [u8]) -> Result<usize> {
         let len = self.state.0.read_message(recv_buf, msg)?;
 
         Ok(len)
@@ -584,10 +611,17 @@ impl Handshake<HandshakeComplete> {
     /// Encrypt and write a message to the send buffer, returning the byte size
     /// of the written payload.
     // TODO: Make this function private once `basic` example is correct.
-    pub fn write_message(mut self, msg: &[u8], send_buf: &mut [u8]) -> Result<usize> {
+    pub fn write_message(&mut self, msg: &[u8], send_buf: &mut [u8]) -> Result<usize> {
         let len = self.state.0.write_message(msg, send_buf)?;
 
         Ok(len)
+    }
+
+    /// Return the static key of the remote peer. In this implementation, the
+    /// static key represents the public key of the peer.
+    // TODO: Consider renaming this to `get_remote_public_key`.
+    pub fn get_remote_static(&self) -> Option<[u8; PUBLIC_KEY_BYTES_LEN]> {
+        self.base.remote_static_key
     }
 }
 
@@ -620,7 +654,7 @@ mod tests {
 
     #[test]
     fn version_to_bytes() -> Result<()> {
-        let version = Version { major: 0, minor: 1 };
+        let version = Version::init(0, 1);
 
         let version_to_bytes = version.to_bytes()?;
         let version_from_bytes = Version::from_bytes(&version_to_bytes)?;
@@ -740,8 +774,8 @@ mod tests {
         };
 
         // Initialise client and server transport mode.
-        let hs_client = hs_client.init_client_transport_mode()?;
-        let hs_server = hs_server.init_server_transport_mode()?;
+        let mut hs_client = hs_client.init_client_transport_mode()?;
+        let mut hs_server = hs_server.init_server_transport_mode()?;
 
         // Write an encrypted message.
         let msg_text = b"An impeccably polite pangolin";
