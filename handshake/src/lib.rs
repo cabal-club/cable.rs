@@ -1,11 +1,15 @@
 #![doc=include_str!("../README.md")]
 
-mod sync;
+pub mod sync;
 #[macro_use]
 mod utils;
 mod version;
 
-use std::fmt::{self, Display};
+use std::{
+    cmp,
+    fmt::{self, Display},
+    io::{Read, Write},
+};
 
 use desert::{FromBytes, ToBytes};
 use log::warn;
@@ -602,19 +606,128 @@ impl Handshake<HandshakeComplete> {
     /// Read an encrypted message from the receive buffer, decrypt and write it
     /// to the message buffer - returning the byte size of the written payload.
     // TODO: Make this function private once `basic` example is correct.
-    pub fn read_message(&mut self, recv_buf: &[u8], msg: &mut [u8]) -> Result<usize> {
+    pub fn read_noise_message(&mut self, recv_buf: &[u8], msg: &mut [u8]) -> Result<usize> {
         let len = self.state.0.read_message(recv_buf, msg)?;
 
         Ok(len)
     }
 
+    pub fn read_message(&mut self, recv_buf: &[u8], msg_len: u32) -> Result<Vec<u8>> {
+        // Initialise the byte indexes.
+        let mut bytes_read = 0;
+        let mut bytes_remaining = msg_len;
+
+        // Buffer to which the decrypted Noise transport message bytes for each
+        // segment will be written.
+        let mut segment_buf = vec![0u8; 65535];
+
+        // Vector to which all decrypted message segments will be appended.
+        let mut msg = Vec::new();
+
+        while bytes_remaining > 0 {
+            // Determine the byte length of the segment to be read.
+            let segment_len = cmp::min(65535, bytes_remaining);
+
+            let len = self.read_noise_message(
+                &recv_buf[bytes_read..bytes_read + segment_len as usize],
+                &mut segment_buf,
+            )?;
+
+            // Append the decrypted message segment to the complete message.
+            msg.extend_from_slice(&segment_buf[..len]);
+
+            // Update the byte indexes.
+            bytes_remaining -= segment_len;
+            bytes_read += segment_len as usize;
+        }
+
+        Ok(msg)
+    }
+
+    pub fn read_message_from_stream<T: Read + Write>(&mut self, stream: &mut T) -> Result<Vec<u8>> {
+        // Read four bytes describing the length of the incoming message.
+        let mut len_buf = [0; 4];
+        stream.read_exact(&mut len_buf)?;
+        let msg_len = u32::from_le_bytes(len_buf);
+
+        // Read the encrypted bytes of the incoming message.
+        let mut recv_buf = vec![0u8; msg_len as usize];
+        stream.read_exact(&mut recv_buf[..])?;
+
+        // Decrypt and return the entire message.
+        let msg = self.read_message(&recv_buf, msg_len)?;
+
+        Ok(msg)
+    }
+
     /// Encrypt and write a message to the send buffer, returning the byte size
     /// of the written payload.
     // TODO: Make this function private once `basic` example is correct.
-    pub fn write_message(&mut self, msg: &[u8], send_buf: &mut [u8]) -> Result<usize> {
+    pub fn write_noise_message(&mut self, msg: &[u8], send_buf: &mut [u8]) -> Result<usize> {
         let len = self.state.0.write_message(msg, send_buf)?;
 
         Ok(len)
+    }
+
+    /// Encrypt and write a message to the send buffer, returning the total
+    /// number of written bytes.
+    ///
+    /// This method handles message fragmentation in the case that the message
+    /// byte length is greater that 65535 bytes. It also writes the byte length
+    /// of the message before writing the message bytes, resulting in a minimum
+    /// of two Noise messages being sent.
+    pub fn write_message(&mut self, msg: &[u8]) -> Result<(usize, Vec<u8>)> {
+        // The length of the authentication tag included with each encrypted
+        // Noise transport message.
+        const AUTH_TAG_LEN: usize = 16;
+
+        // Initialise the byte indexes.
+        let mut bytes_written = 0;
+        let mut encrypted_bytes_written = 0;
+
+        // Buffer to which the encrypted Noise transport message bytes for each
+        // segment will be written.
+        let mut segment_buf = [0u8; 65535];
+
+        // Vector to which all encrypted message segments will be appended.
+        let mut encrypted_msg = Vec::new();
+
+        let msg_len = msg.len();
+
+        // Encrypt and append one or more message segments until the entire
+        // message has been written.
+        while bytes_written < msg_len {
+            // Determine the byte length of the segment to be written.
+            let segment_len = cmp::min(65535 - AUTH_TAG_LEN, msg_len - bytes_written);
+            // Index the bytes of the segment to be written.
+            let bytes = &msg[bytes_written..bytes_written + segment_len];
+
+            // Write the message segment.
+            let len = self.write_noise_message(bytes, &mut segment_buf)?;
+
+            // Append the encrypted message segment to the complete message.
+            encrypted_msg.extend_from_slice(&segment_buf[..len]);
+
+            // Update the byte indexes.
+            bytes_written += segment_len;
+            encrypted_bytes_written += len;
+        }
+
+        Ok((encrypted_bytes_written, encrypted_msg))
+    }
+
+    pub fn write_message_to_stream<T: Read + Write>(
+        &mut self,
+        stream: &mut T,
+        msg: &[u8],
+    ) -> Result<usize> {
+        let (bytes_written, encrypted_msg) = self.write_message(msg)?;
+        let encrypted_msg_len = &bytes_written.to_le_bytes()[..4];
+
+        stream.write_all(encrypted_msg_len)?;
+        stream.write_all(&encrypted_msg)?;
+
+        Ok(bytes_written)
     }
 
     /// Return the static key of the remote peer. In this implementation, the
