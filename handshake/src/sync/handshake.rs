@@ -6,7 +6,7 @@ use crate::{
 };
 
 /// Initiate the handshake in a synchronous manner and run to completion.
-pub fn handshake_client<T: Read + Write>(
+pub fn client<T: Read + Write>(
     stream: &mut T,
     version: Version,
     psk: [u8; 32],
@@ -50,7 +50,7 @@ pub fn handshake_client<T: Read + Write>(
 }
 
 /// Respond to a handshake in a synchronous manner and run to completion.
-pub fn handshake_server<T: Read + Write>(
+pub fn server<T: Read + Write>(
     stream: &mut T,
     version: Version,
     psk: [u8; 32],
