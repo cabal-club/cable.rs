@@ -892,13 +892,12 @@ mod tests {
 
         // Write an encrypted message.
         let msg_text = b"An impeccably polite pangolin";
-        let write_len = hs_client.write_message(msg_text, &mut buf)?;
+        let (write_len, encrypted_msg) = hs_client.write_message(msg_text)?;
 
         // Read an encrypted message.
-        let mut msg_buf = [0u8; 48];
-        let read_len = hs_server.read_message(&buf[..write_len], &mut msg_buf)?;
+        let msg = hs_server.read_message(&encrypted_msg[..], write_len.try_into()?)?;
 
-        assert_eq!(msg_text, &msg_buf[..read_len]);
+        assert_eq!(msg_text, &msg[..]);
 
         Ok(())
     }
