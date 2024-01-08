@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 desert = { path = "../desert" }
+futures-util = { version = "0.3.30", features = ["io"] }
 log = "0.4.20"
 snow = "0.9.4"
 
