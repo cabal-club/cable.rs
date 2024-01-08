@@ -9,3 +9,6 @@ edition = "2021"
 desert = { path = "../desert" }
 log = "0.4.20"
 snow = "0.9.4"
+
+[dev-dependencies]
+sodiumoxide = "0.2.7"
