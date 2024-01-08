@@ -1,5 +1,6 @@
 #![doc=include_str!("../README.md")]
 
+pub mod async_std;
 pub mod sync;
 #[macro_use]
 mod utils;
@@ -12,6 +13,7 @@ use std::{
 };
 
 use desert::{FromBytes, ToBytes};
+use futures_util::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use log::warn;
 use snow::{
     Builder as NoiseBuilder, HandshakeState as NoiseHandshakeState,
@@ -660,6 +662,25 @@ impl Handshake<HandshakeComplete> {
         Ok(msg)
     }
 
+    pub async fn read_message_from_async_stream<T: AsyncRead + AsyncWrite + Unpin>(
+        &mut self,
+        stream: &mut T,
+    ) -> Result<Vec<u8>> {
+        // Read four bytes describing the length of the incoming message.
+        let mut len_buf = [0; 4];
+        stream.read_exact(&mut len_buf).await?;
+        let msg_len = u32::from_le_bytes(len_buf);
+
+        // Read the encrypted bytes of the incoming message.
+        let mut recv_buf = vec![0u8; msg_len as usize];
+        stream.read_exact(&mut recv_buf[..]).await?;
+
+        // Decrypt and return the entire message.
+        let msg = self.read_message(&recv_buf, msg_len)?;
+
+        Ok(msg)
+    }
+
     /// Encrypt and write a message to the send buffer, returning the byte size
     /// of the written payload.
     // TODO: Make this function private once `basic` example is correct.
@@ -726,6 +747,20 @@ impl Handshake<HandshakeComplete> {
 
         stream.write_all(encrypted_msg_len)?;
         stream.write_all(&encrypted_msg)?;
+
+        Ok(bytes_written)
+    }
+
+    pub async fn write_message_to_async_stream<T: AsyncRead + AsyncWrite + Unpin>(
+        &mut self,
+        stream: &mut T,
+        msg: &[u8],
+    ) -> Result<usize> {
+        let (bytes_written, encrypted_msg) = self.write_message(msg)?;
+        let encrypted_msg_len = &bytes_written.to_le_bytes()[..4];
+
+        stream.write_all(encrypted_msg_len).await?;
+        stream.write_all(&encrypted_msg).await?;
 
         Ok(bytes_written)
     }
