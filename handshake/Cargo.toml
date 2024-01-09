@@ -12,4 +12,9 @@ log = "0.4.20"
 snow = "0.9.4"
 
 [dev-dependencies]
+criterion = { version = "0.5.1", features = ["html_reports"] }
 sodiumoxide = "0.2.7"
+
+[[bench]]
+name = "handshake_sync"
+harness = false
