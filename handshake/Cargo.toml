@@ -18,3 +18,7 @@ sodiumoxide = "0.2.7"
 [[bench]]
 name = "handshake_sync"
 harness = false
+
+[[bench]]
+name = "message_sync"
+harness = false
