@@ -4,7 +4,7 @@ use desert::{FromBytes, ToBytes};
 
 use crate::Result;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 /// Major and minor identifiers for a particular version of the Cable Handshake
 /// protocol.
 pub struct Version {
