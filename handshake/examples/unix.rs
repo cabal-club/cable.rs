@@ -1,10 +1,13 @@
 use std::{
     env,
     os::unix::net::{UnixListener, UnixStream},
+    path::Path,
 };
 
 use cable_handshake::{sync::handshake, Result, Version};
 use snow::Builder as NoiseBuilder;
+
+const SOCKET_PATH: &str = "/tmp/handshake.sock";
 
 fn help() {
     println!(
@@ -39,8 +42,8 @@ fn run_client() -> Result<()> {
     let keypair = builder.generate_keypair()?;
     let private_key = keypair.private;
 
-    println!("Connecting to Unix socket at /tmp/sock");
-    let mut stream = UnixStream::connect("/tmp/sock")?;
+    println!("Connecting to Unix socket at {}", SOCKET_PATH);
+    let mut stream = UnixStream::connect(SOCKET_PATH)?;
     println!("Connected");
 
     println!("Initiating handshake...");
@@ -71,9 +74,9 @@ fn run_server() -> Result<()> {
     let private_key = keypair.private;
 
     // Deploy a Unix socket listener.
-    let listener = UnixListener::bind("/tmp/sock")?;
+    let listener = UnixListener::bind(SOCKET_PATH)?;
 
-    println!("Unix socket listening on /tmp/sock");
+    println!("Unix socket listening on {}", SOCKET_PATH);
 
     // Accept connection.
     if let Ok((mut stream, _addr)) = listener.accept() {
@@ -91,6 +94,12 @@ fn run_server() -> Result<()> {
         let msg = encrypted.read_message_from_stream(&mut stream)?;
 
         println!("Received message: {:?}", msg);
+    }
+
+    // Remove the socket file so that the address will be bound successfully
+    // the next time this example runs.
+    if Path::new(SOCKET_PATH).exists() {
+        std::fs::remove_file(SOCKET_PATH)?
     }
 
     Ok(())
