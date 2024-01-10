@@ -4,6 +4,7 @@
 //
 // Vendored from kuska-handshake 0.2.0.
 
+/// Helper macro to append one buffer to another.
 macro_rules! concat_into {
     ( $dst:expr, $( $x:expr ),* ) => {
         {

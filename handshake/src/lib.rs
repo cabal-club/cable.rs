@@ -30,6 +30,7 @@ pub type Error = Box<dyn std::error::Error + Send + Sync>;
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, PartialEq)]
+/// Error that can occur during the handshake.
 pub enum HandshakeError {
     /// The received major server version does not match that of the client.
     IncompatibleServerVersion { received: u8, expected: u8 },
@@ -52,29 +53,29 @@ impl Display for HandshakeError {
 }
 
 /// Size of the version message.
-pub const VERSION_BYTES_LEN: usize = 2;
+const VERSION_BYTES_LEN: usize = 2;
 
 /// Number of bytes that will be written to the `send_buf` and `recv_buf`
 /// during the version exchange.
-pub const fn version_bytes_len() -> usize {
+const fn version_bytes_len() -> usize {
     VERSION_BYTES_LEN
 }
 
 /// Size of the ephemeral key.
-pub const EPHEMERAL_KEY_BYTES_LEN: usize = 48;
+const EPHEMERAL_KEY_BYTES_LEN: usize = 48;
 
 /// Number of bytes that will be written to the `send_buf` and `recv_buf`
 /// during the ephemeral key exchange.
-pub const fn ephemeral_key_bytes_len() -> usize {
+const fn ephemeral_key_bytes_len() -> usize {
     EPHEMERAL_KEY_BYTES_LEN
 }
 
 /// Size of the ephemeral and static keys.
-pub const EPHEMERAL_AND_STATIC_KEY_BYTES_LEN: usize = 96;
+const EPHEMERAL_AND_STATIC_KEY_BYTES_LEN: usize = 96;
 
 /// Number of bytes that will be written to the `send_buf` and `recv_buf`
 /// during the ephemeral and static key exchange.
-pub const fn ephemeral_and_static_key_bytes_len() -> usize {
+const fn ephemeral_and_static_key_bytes_len() -> usize {
     EPHEMERAL_AND_STATIC_KEY_BYTES_LEN
 }
 
@@ -82,30 +83,32 @@ pub const fn ephemeral_and_static_key_bytes_len() -> usize {
 ///
 /// In the context of the Cable Handshake implementation, this value is the
 /// private key of the author keypair.
-pub const STATIC_KEY_BYTES_LEN: usize = 64;
+const STATIC_KEY_BYTES_LEN: usize = 64;
 
 /// Number of bytes that will be written to the `send_buf` and `recv_buf`
 /// during the static key exchange.
-pub const fn static_key_bytes_len() -> usize {
+const fn static_key_bytes_len() -> usize {
     STATIC_KEY_BYTES_LEN
 }
 
 /// Size of the public key received via the static key exchange.
-pub const PUBLIC_KEY_BYTES_LEN: usize = 32;
+const PUBLIC_KEY_BYTES_LEN: usize = 32;
 
 /// The initialization data of a handshake that exists in every state of the
 /// handshake.
 #[derive(Debug, PartialEq)]
 pub struct HandshakeBase {
+    /// The handshake protocol version.
     version: Version,
+    /// The pre-shared key (aka. the "cabal key").
     psk: [u8; 32],
     // TODO: Could this rather be a sized array?
     //private_key: [u8; 64],
+    /// The private key of the cabal keypair belonging to the handshaker.
     private_key: Vec<u8>,
-    // TODO: Is this field necessary?
-    // We could rather just call `get_remote_static()` on `HandshakeState`
-    // or `TransportState`.
-    pub remote_static_key: Option<[u8; PUBLIC_KEY_BYTES_LEN]>,
+    /// The public key of the remote peer with whom the handshake has
+    /// been conducted.
+    pub remote_public_key: Option<[u8; PUBLIC_KEY_BYTES_LEN]>,
 }
 
 /// The `Handshake` type maintains the different states that happen in each
@@ -118,6 +121,7 @@ pub struct Handshake<S: State> {
     pub state: S,
 }
 
+/// The role taken by a peer during the handshake.
 #[derive(Debug)]
 enum Role {
     Initiator,
@@ -128,61 +132,61 @@ enum Role {
 
 /// The client state that can send the version.
 #[derive(Debug)]
-pub struct ClientSendVersion;
+struct ClientSendVersion;
 
 /// The client state that can receive the version.
 #[derive(Debug)]
-pub struct ClientRecvVersion;
+struct ClientRecvVersion;
 
 /// The client state that can build the Noise handshake state machine.
 #[derive(Debug)]
-pub struct ClientBuildNoiseStateMachine;
+struct ClientBuildNoiseStateMachine;
 
 /// The client state that can send the ephemeral key.
 #[derive(Debug)]
-pub struct ClientSendEphemeralKey(NoiseHandshakeState);
+struct ClientSendEphemeralKey(NoiseHandshakeState);
 
 /// The client state that can receive the ephemeral and static keys.
 #[derive(Debug)]
-pub struct ClientRecvEphemeralAndStaticKey(NoiseHandshakeState);
+struct ClientRecvEphemeralAndStaticKey(NoiseHandshakeState);
 
 /// The client state that can send the static key.
 #[derive(Debug)]
-pub struct ClientSendStaticKey(NoiseHandshakeState);
+struct ClientSendStaticKey(NoiseHandshakeState);
 
 /// The client state that can initialise transport mode.
 #[derive(Debug)]
-pub struct ClientInitTransportMode(NoiseHandshakeState);
+struct ClientInitTransportMode(NoiseHandshakeState);
 
 // Server states. The server acts as the handshake responder.
 
 /// The server state that can receive the version.
 #[derive(Debug)]
-pub struct ServerRecvVersion;
+struct ServerRecvVersion;
 
 /// The server state that can receive the version.
 #[derive(Debug)]
-pub struct ServerSendVersion;
+struct ServerSendVersion;
 
 /// The server state that can build the Noise handshake state machine.
 #[derive(Debug)]
-pub struct ServerBuildNoiseStateMachine;
+struct ServerBuildNoiseStateMachine;
 
 /// The server state that can receive the ephemeral key.
 #[derive(Debug)]
-pub struct ServerRecvEphemeralKey(NoiseHandshakeState);
+struct ServerRecvEphemeralKey(NoiseHandshakeState);
 
 /// The server state that can send the ephemeral and static keys.
 #[derive(Debug)]
-pub struct ServerSendEphemeralAndStaticKey(NoiseHandshakeState);
+struct ServerSendEphemeralAndStaticKey(NoiseHandshakeState);
 
 /// The server state that can receive the static key.
 #[derive(Debug)]
-pub struct ServerRecvStaticKey(NoiseHandshakeState);
+struct ServerRecvStaticKey(NoiseHandshakeState);
 
 /// The server state that can initialise transport mode.
 #[derive(Debug)]
-pub struct ServerInitTransportMode(NoiseHandshakeState);
+struct ServerInitTransportMode(NoiseHandshakeState);
 
 // Shared client / server states.
 
@@ -190,30 +194,30 @@ pub struct ServerInitTransportMode(NoiseHandshakeState);
 #[derive(Debug)]
 pub struct HandshakeComplete(NoiseTransportState);
 
-/// The `State` trait is used to implement the typestate pattern for the
-/// `Handshake`.
-///
-/// The state machine is as follows:
-///
-/// Client:
-///
-/// - [`ClientSendVersion`] - `send_client_version()` -> [`ClientRecvVersion`]
-/// - [`ClientRecvVersion`] - `recv_server_version()` -> [`ClientBuildNoiseStateMachine`]
-/// - [`ClientBuildNoiseStateMachine`] - `build_client_noise_state_machine()` -> [`ClientSendEphemeralKey`]
-/// - [`ClientSendEphemeralKey`] - `send_client_ephemeral_key()` -> [`ClientRecvEphemeralAndStaticKey`]
-/// - [`ClientRecvEphemeralAndStaticKey`] - `recv_server_ephemeral_and_static_key()` -> [`ClientSendStaticKey`]
-/// - [`ClientSendStaticKey`] - `send_client_static_key()` -> [`ClientInitTransportMode`]
-/// - [`ClientInitTransportMode`] - `init_client_transport_mode()` -> [`HandshakeComplete`]
-///
-/// Server:
-///
-/// - [`ServerRecvVersion`] - `recv_client_version()` -> [`ServerSendVersion`]
-/// - [`ServerSendVersion`] - `send_server_version()` -> [`ServerBuildNoiseStateMachine`]
-/// - [`ServerBuildNoiseStateMachine`] - `build_server_noise_state_machine()` -> [`ServerRecvEphemeralKey`]
-/// - [`ServerRecvEphemeralKey`] - `recv_client_ephemeral_key()` -> [`ServerSendEphemeralAndStaticKey`]
-/// - [`ServerSendEphemeralAndStaticKey`] - `send_server_ephemeral_and_static_key()` -> [`ServerRecvStaticKey`]
-/// - [`ServerRecvStaticKey`] - `recv_client_static_key()` -> [`ServerInitTransportMode`]
-/// - [`ServerInitTransportMode`] - `init_server_transport_mode()` -> [`HandshakeComplete`]
+// The `State` trait is used to implement the typestate pattern for the
+// `Handshake`.
+//
+// The state machine is as follows:
+//
+// Client:
+//
+// - [`ClientSendVersion`] - `send_client_version()` -> [`ClientRecvVersion`]
+// - [`ClientRecvVersion`] - `recv_server_version()` -> [`ClientBuildNoiseStateMachine`]
+// - [`ClientBuildNoiseStateMachine`] - `build_client_noise_state_machine()` -> [`ClientSendEphemeralKey`]
+// - [`ClientSendEphemeralKey`] - `send_client_ephemeral_key()` -> [`ClientRecvEphemeralAndStaticKey`]
+// - [`ClientRecvEphemeralAndStaticKey`] - `recv_server_ephemeral_and_static_key()` -> [`ClientSendStaticKey`]
+// - [`ClientSendStaticKey`] - `send_client_static_key()` -> [`ClientInitTransportMode`]
+// - [`ClientInitTransportMode`] - `init_client_transport_mode()` -> [`HandshakeComplete`]
+//
+// Server:
+//
+// - [`ServerRecvVersion`] - `recv_client_version()` -> [`ServerSendVersion`]
+// - [`ServerSendVersion`] - `send_server_version()` -> [`ServerBuildNoiseStateMachine`]
+// - [`ServerBuildNoiseStateMachine`] - `build_server_noise_state_machine()` -> [`ServerRecvEphemeralKey`]
+// - [`ServerRecvEphemeralKey`] - `recv_client_ephemeral_key()` -> [`ServerSendEphemeralAndStaticKey`]
+// - [`ServerSendEphemeralAndStaticKey`] - `send_server_ephemeral_and_static_key()` -> [`ServerRecvStaticKey`]
+// - [`ServerRecvStaticKey`] - `recv_client_static_key()` -> [`ServerInitTransportMode`]
+// - [`ServerInitTransportMode`] - `init_server_transport_mode()` -> [`HandshakeComplete`]
 pub trait State {}
 
 impl State for ClientSendVersion {}
@@ -270,7 +274,7 @@ impl Handshake<ClientSendVersion> {
             version,
             psk,
             private_key,
-            remote_static_key: None,
+            remote_public_key: None,
         };
         let state = ClientSendVersion;
 
@@ -376,8 +380,8 @@ impl Handshake<ClientRecvEphemeralAndStaticKey> {
         // Receive the ephemeral and static keys from the server.
         self.state.0.read_message(recv_buf, &mut read_buf)?;
 
-        // Set the value of the server's static key.
-        self.base.remote_static_key = match self.state.0.get_remote_static() {
+        // Set the value of the server's public key.
+        self.base.remote_public_key = match self.state.0.get_remote_static() {
             // Convert the key from a slice (`&[u8]`) to a sized array.
             Some(key) => Some(key.try_into()?),
             None => None,
@@ -444,7 +448,7 @@ impl Handshake<ServerRecvVersion> {
             version,
             psk,
             private_key,
-            remote_static_key: None,
+            remote_public_key: None,
         };
         let state = ServerRecvVersion;
 
@@ -567,7 +571,7 @@ impl Handshake<ServerRecvStaticKey> {
         self.state.0.read_message(recv_buf, &mut read_buf)?;
 
         // Set the value of the client's static key.
-        self.base.remote_static_key = match self.state.0.get_remote_static() {
+        self.base.remote_public_key = match self.state.0.get_remote_static() {
             // Convert the key from a slice (`&[u8]`) to a sized array.
             Some(key) => Some(key.try_into()?),
             None => None,
@@ -607,6 +611,11 @@ impl Handshake<HandshakeComplete> {
         Ok(len)
     }
 
+    /// Read an encrypted message of the given length from the receive buffer,
+    /// decrypt and return it as a byte vector.
+    ///
+    /// This method handles defragmentation of large (> 65519 byte) messages
+    /// automatically.
     pub fn read_message(&mut self, recv_buf: &[u8], msg_len: u32) -> Result<Vec<u8>> {
         // Initialise the byte indexes.
         let mut bytes_read = 0;
@@ -639,6 +648,12 @@ impl Handshake<HandshakeComplete> {
         Ok(msg)
     }
 
+    /// Read an encrypted message from the given stream and return it as a
+    /// byte vector.
+    ///
+    /// This method essentially reads two messages from the stream: the
+    /// unencrypted message length specifier (4 bytes) followed by the
+    /// encrypted message payload.
     pub fn read_message_from_stream<T: Read + Write>(&mut self, stream: &mut T) -> Result<Vec<u8>> {
         // Read four bytes describing the length of the incoming message.
         let mut len_buf = [0; 4];
@@ -655,6 +670,12 @@ impl Handshake<HandshakeComplete> {
         Ok(msg)
     }
 
+    /// Read an encrypted message from the given asynchronous stream and
+    /// return it as a byte vector.
+    ///
+    /// This method essentially reads two messages from the stream: the
+    /// unencrypted message length specifier (4 bytes) followed by the
+    /// encrypted message payload.
     pub async fn read_message_from_async_stream<T: AsyncRead + AsyncWrite + Unpin>(
         &mut self,
         stream: &mut T,
@@ -686,9 +707,7 @@ impl Handshake<HandshakeComplete> {
     /// number of written bytes.
     ///
     /// This method handles message fragmentation in the case that the message
-    /// byte length is greater that 65535 bytes. It also writes the byte length
-    /// of the message before writing the message bytes, resulting in a minimum
-    /// of two Noise messages being sent.
+    /// byte length is greater that 65519 bytes.
     pub fn write_message(&mut self, msg: &[u8]) -> Result<(usize, Vec<u8>)> {
         // The length of the authentication tag included with each encrypted
         // Noise transport message.
@@ -729,6 +748,13 @@ impl Handshake<HandshakeComplete> {
         Ok((encrypted_bytes_written, encrypted_msg))
     }
 
+    /// Encrypt and write a message to the stream, returning the byte size
+    /// of the written payload.
+    ///
+    /// This method essentially writes at least two messages to the stream:
+    /// the unencrypted message length specifier (4 bytes) followed by the
+    /// encrypted message payload. The encrypted message payload may be split
+    /// into several fragments depending on total payload size.
     pub fn write_message_to_stream<T: Read + Write>(
         &mut self,
         stream: &mut T,
@@ -743,6 +769,13 @@ impl Handshake<HandshakeComplete> {
         Ok(bytes_written)
     }
 
+    /// Encrypt and write a message to the asynchronous stream, returning the
+    /// byte size of the written payload.
+    ///
+    /// This method essentially writes at least two messages to the stream:
+    /// the unencrypted message length specifier (4 bytes) followed by the
+    /// encrypted message payload. The encrypted message payload may be split
+    /// into several fragments depending on total payload size.
     pub async fn write_message_to_async_stream<T: AsyncRead + AsyncWrite + Unpin>(
         &mut self,
         stream: &mut T,
@@ -757,11 +790,9 @@ impl Handshake<HandshakeComplete> {
         Ok(bytes_written)
     }
 
-    /// Return the static key of the remote peer. In this implementation, the
-    /// static key represents the public key of the peer.
-    // TODO: Consider renaming this to `get_remote_public_key`.
-    pub fn get_remote_static(&self) -> Option<[u8; PUBLIC_KEY_BYTES_LEN]> {
-        self.base.remote_static_key
+    /// Return the public key of the remote peer.
+    pub fn get_remote_public_key(&self) -> Option<[u8; PUBLIC_KEY_BYTES_LEN]> {
+        self.base.remote_public_key
     }
 }
 
