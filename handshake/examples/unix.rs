@@ -1,3 +1,6 @@
+//! Example demonstrating a synchronous handshake and (de)fragmented message
+//! exchange over a Unix socket.
+
 use std::{
     env,
     os::unix::net::{UnixListener, UnixStream},
@@ -13,11 +16,26 @@ fn help() {
     println!(
         "Usage:
 
-unix_handshake
+unix
     Execute the handshake as a client (initiator) over a Unix socket.
-unix_handshake {{-s|--server}}
+unix {{-s|--server}}
     Execute the handshake as a server (responder) over a Unix socket."
     );
+}
+
+fn setup() -> Result<(Version, [u8; 32], Vec<u8>)> {
+    // Define handshake version.
+    let version = Version::init(1, 0);
+
+    // Define pre-shared key.
+    let psk: [u8; 32] = [1; 32];
+
+    // Generate keypair.
+    let builder = NoiseBuilder::new("Noise_XXpsk0_25519_ChaChaPoly_BLAKE2b".parse()?);
+    let keypair = builder.generate_keypair()?;
+    let private_key = keypair.private;
+
+    Ok((version, psk, private_key))
 }
 
 fn main() {
@@ -34,13 +52,7 @@ fn main() {
 }
 
 fn run_client() -> Result<()> {
-    let version = Version::init(1, 0);
-
-    let psk: [u8; 32] = [1; 32];
-
-    let builder = NoiseBuilder::new("Noise_XXpsk0_25519_ChaChaPoly_BLAKE2b".parse()?);
-    let keypair = builder.generate_keypair()?;
-    let private_key = keypair.private;
+    let (version, psk, private_key) = setup()?;
 
     println!("Connecting to Unix socket at {}", SOCKET_PATH);
     let mut stream = UnixStream::connect(SOCKET_PATH)?;
@@ -65,13 +77,7 @@ fn run_client() -> Result<()> {
 }
 
 fn run_server() -> Result<()> {
-    let version = Version::init(1, 0);
-
-    let psk: [u8; 32] = [1; 32];
-
-    let builder = NoiseBuilder::new("Noise_XXpsk0_25519_ChaChaPoly_BLAKE2b".parse()?);
-    let keypair = builder.generate_keypair()?;
-    let private_key = keypair.private;
+    let (version, psk, private_key) = setup()?;
 
     // Deploy a Unix socket listener.
     let listener = UnixListener::bind(SOCKET_PATH)?;

@@ -13,6 +13,7 @@ snow = "0.9.4"
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }
+async-std = { version = "1.12.0", features = ["attributes"] }
 sodiumoxide = "0.2.7"
 
 [[bench]]

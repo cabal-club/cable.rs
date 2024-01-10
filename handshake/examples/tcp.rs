@@ -1,3 +1,6 @@
+//! Example demonstrating a synchronous handshake and (de)fragmented message
+//! exchange over a TCP connection.
+
 use std::{
     env,
     net::{TcpListener, TcpStream},
@@ -10,11 +13,26 @@ fn help() {
     println!(
         "Usage:
 
-tcp_handshake
+tcp
     Execute the handshake as a client (initiator) over TCP.
-tcp_handshake {{-s|--server}}
+tcp {{-s|--server}}
     Execute the handshake as a server (responder) over TCP."
     );
+}
+
+fn setup() -> Result<(Version, [u8; 32], Vec<u8>)> {
+    // Define handshake version.
+    let version = Version::init(1, 0);
+
+    // Define pre-shared key.
+    let psk: [u8; 32] = [1; 32];
+
+    // Generate keypair.
+    let builder = NoiseBuilder::new("Noise_XXpsk0_25519_ChaChaPoly_BLAKE2b".parse()?);
+    let keypair = builder.generate_keypair()?;
+    let private_key = keypair.private;
+
+    Ok((version, psk, private_key))
 }
 
 fn main() {
@@ -31,13 +49,7 @@ fn main() {
 }
 
 fn run_client() -> Result<()> {
-    let version = Version::init(1, 0);
-
-    let psk: [u8; 32] = [1; 32];
-
-    let builder = NoiseBuilder::new("Noise_XXpsk0_25519_ChaChaPoly_BLAKE2b".parse()?);
-    let keypair = builder.generate_keypair()?;
-    let private_key = keypair.private;
+    let (version, psk, private_key) = setup();
 
     println!("Connecting to TCP server on 127.0.0.1:9999");
     let mut stream = TcpStream::connect("127.0.0.1:9999")?;
@@ -62,13 +74,7 @@ fn run_client() -> Result<()> {
 }
 
 fn run_server() -> Result<()> {
-    let version = Version::init(1, 0);
-
-    let psk: [u8; 32] = [1; 32];
-
-    let builder = NoiseBuilder::new("Noise_XXpsk0_25519_ChaChaPoly_BLAKE2b".parse()?);
-    let keypair = builder.generate_keypair()?;
-    let private_key = keypair.private;
+    let (version, psk, private_key) = setup();
 
     // Deploy a TCP listener.
     let listener = TcpListener::bind("127.0.0.1:9999")?;
