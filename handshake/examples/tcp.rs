@@ -62,6 +62,11 @@ fn run_client() -> Result<()> {
     println!("Initiating handshake...");
     let mut encrypted = handshake::client(&mut stream, version, psk, private_key)?;
 
+    // Return the public key of the remote peer (as bytes).
+    if let Some(key) = encrypted.get_remote_public_key() {
+        println!("Completed handshake with {:?}", key)
+    }
+
     // Write a short encrypted message.
     let msg = b"An impeccably polite pangolin";
     encrypted.write_message_to_stream(&mut stream, msg)?;

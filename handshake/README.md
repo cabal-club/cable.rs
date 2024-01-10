@@ -27,6 +27,10 @@ let version = Version::init(1, 0);
 // `private_key` refers to the Cabal author keypair (`Vec<u8>`).
 let mut server = handshake::server(&mut stream, version, psk, private_key)?;
 
+if let Some(client_public_key) = server.get_remote_public_key() {
+    println!("Completed handshake with {:?}", client_public_key)
+}
+
 let bytes_written = server.write_message_to_stream(&mut stream, b"Aesthetic ichneumonids")?;
 
 let msg = server.read_message_from_stream(&mut stream)?;
@@ -40,6 +44,10 @@ use cable_handshake::{sync::handshake, Version};
 let version = Version::init(1, 7);
 
 let mut client = handshake::client(&mut stream, version, psk, private_key)?;
+
+if let Some(server_public_key) = client.get_remote_public_key() {
+    println!("Completed handshake with {:?}", server_public_key)
+}
 
 let msg = client.read_message_from_stream(&mut stream)?;
 
