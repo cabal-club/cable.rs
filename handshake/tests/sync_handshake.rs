@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2024 the cabal-club authors
+//
+// SPDX-License-Identifier: LGPL-3.0-or-later
+
 //! Test the synchronous handshake and (de)fragmented message exchange.
 
 use std::{

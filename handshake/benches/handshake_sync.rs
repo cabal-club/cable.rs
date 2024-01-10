@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2024 the cabal-club authors
+//
+// SPDX-License-Identifier: LGPL-3.0-or-later
+
 //! Benchmark of a synchronous handshake over a Unix socket.
 
 use std::{

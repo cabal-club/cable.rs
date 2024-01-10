@@ -1,5 +1,9 @@
 #![doc=include_str!("../README.md")]
 
+// SPDX-FileCopyrightText: 2024 the cabal-club authors
+//
+// SPDX-License-Identifier: LGPL-3.0-or-later
+
 pub mod async_std;
 pub mod sync;
 #[macro_use]
