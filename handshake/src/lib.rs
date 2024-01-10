@@ -833,7 +833,6 @@ mod tests {
         Ok(())
     }
 
-    /* TODO: Fix this test.
     #[test]
     fn version_exchange_failure() -> Result<()> {
         let (hs_client, hs_server) = init_handshakers((3, 7), (1, 0))?;
@@ -847,13 +846,16 @@ mod tests {
         let hs_server = hs_server.recv_client_version(&mut server_buf)?;
 
         let mut server_buf = &mut buf[..version_bytes_len()];
-        let hs_server = hs_server.send_server_version(&mut server_buf)?;
+        let _hs_server = hs_server.send_server_version(&mut server_buf)?;
 
         let mut client_buf = &mut buf[..version_bytes_len()];
-        let hs_client = hs_client.recv_server_version(&mut client_buf)?;
+        let hs_client = hs_client.recv_server_version(&mut client_buf);
 
+        assert!(hs_client.is_err());
+
+        let err = hs_client.unwrap_err().downcast::<HandshakeError>().unwrap();
         assert_eq!(
-            hs_client,
+            *err,
             HandshakeError::IncompatibleServerVersion {
                 received: 1,
                 expected: 3
@@ -862,7 +864,6 @@ mod tests {
 
         Ok(())
     }
-    */
 
     #[test]
     fn handshake() -> Result<()> {
@@ -936,32 +937,4 @@ mod tests {
 
         Ok(())
     }
-
-    /*
-    TODO: Rather test with TCP connection in integration tests.
-
-    fn _setup_tcp_connection() {}
-
-    #[test]
-    fn version_exchange_works() -> std::io::Result<()> {
-        // Deploy a TCP listener.
-        //
-        // Assigning port to 0 means that the OS selects an available port for us.
-        let listener = TcpListener::bind("127.0.0.1:0")?;
-
-        // Retrieve the address of the TCP listener to be able to connect later on.
-        let addr = listener.local_addr()?;
-
-        thread::spawn(move || {
-            // Accept connections and process them serially.
-            for stream in listener.incoming() {
-                stream.read(&mut [0; 8])?;
-            }
-        });
-
-        let mut stream = TcpStream::connect(addr)?;
-
-        stream.write(&[1])?;
-    }
-    */
 }
