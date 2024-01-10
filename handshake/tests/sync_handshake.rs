@@ -1,4 +1,4 @@
-// Test the synchronous handshake and (de)fragmented message exchange.
+//! Test the synchronous handshake and (de)fragmented message exchange.
 
 use std::{
     net::{TcpListener, TcpStream},
