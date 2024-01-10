@@ -257,7 +257,7 @@ fn build_noise_state_machine(
 
 impl Handshake<ClientSendVersion> {
     /// Create a new handshake client that can send the version data.
-    pub fn new_client(
+    fn new_client(
         version: Version,
         psk: [u8; 32],
         private_key: Vec<u8>,
@@ -275,7 +275,7 @@ impl Handshake<ClientSendVersion> {
 
     /// Send the client version data to the server and advance to the next
     /// client state.
-    pub fn send_client_version(self, send_buf: &mut [u8]) -> Result<Handshake<ClientRecvVersion>> {
+    fn send_client_version(self, send_buf: &mut [u8]) -> Result<Handshake<ClientRecvVersion>> {
         concat_into!(send_buf, &self.base.version.to_bytes()?);
         let state = ClientRecvVersion;
         let handshake = Handshake {
@@ -293,7 +293,7 @@ impl Handshake<ClientRecvVersion> {
     ///
     /// Terminate the handshake with an error if the major version of the
     /// responder differs from that of the initiator.
-    pub fn recv_server_version(
+    fn recv_server_version(
         self,
         recv_buf: &mut [u8],
     ) -> Result<Handshake<ClientBuildNoiseStateMachine>> {
@@ -319,8 +319,7 @@ impl Handshake<ClientRecvVersion> {
 impl Handshake<ClientBuildNoiseStateMachine> {
     /// Build the Noise handshake state machine for the client with the PSK and
     /// private key.
-    // TODO: Make this function private once `basic` example is correct.
-    pub fn build_client_noise_state_machine(self) -> Result<Handshake<ClientSendEphemeralKey>> {
+    fn build_client_noise_state_machine(self) -> Result<Handshake<ClientSendEphemeralKey>> {
         let noise_state_machine = build_noise_state_machine(
             Role::Initiator,
             self.base.psk,
@@ -340,8 +339,7 @@ impl Handshake<ClientBuildNoiseStateMachine> {
 
 impl Handshake<ClientSendEphemeralKey> {
     /// Send the client ephemeral key to the server and advance to the next client state.
-    // TODO: Make this function private once `basic` example is correct.
-    pub fn send_client_ephemeral_key(
+    fn send_client_ephemeral_key(
         mut self,
         send_buf: &mut [u8],
     ) -> Result<Handshake<ClientRecvEphemeralAndStaticKey>> {
@@ -365,8 +363,7 @@ impl Handshake<ClientSendEphemeralKey> {
 impl Handshake<ClientRecvEphemeralAndStaticKey> {
     /// Receive the ephemeral and static keys from the server and advance to
     /// the next client state.
-    // TODO: Make this function private once `basic` example is correct.
-    pub fn recv_server_ephemeral_and_static_key(
+    fn recv_server_ephemeral_and_static_key(
         mut self,
         recv_buf: &mut [u8],
     ) -> Result<Handshake<ClientSendStaticKey>> {
@@ -394,8 +391,7 @@ impl Handshake<ClientRecvEphemeralAndStaticKey> {
 
 impl Handshake<ClientSendStaticKey> {
     /// Send the client static key to the server and advance to the next client state.
-    // TODO: Make this function private once `basic` example is correct.
-    pub fn send_client_static_key(
+    fn send_client_static_key(
         mut self,
         send_buf: &mut [u8],
     ) -> Result<Handshake<ClientInitTransportMode>> {
@@ -418,8 +414,7 @@ impl Handshake<ClientSendStaticKey> {
 
 impl Handshake<ClientInitTransportMode> {
     /// Complete the client handshake by initialising the encrypted transport.
-    // TODO: Make this function private once `basic` example is correct.
-    pub fn init_client_transport_mode(self) -> Result<Handshake<HandshakeComplete>> {
+    fn init_client_transport_mode(self) -> Result<Handshake<HandshakeComplete>> {
         let transport_state = self.state.0.into_transport_mode()?;
 
         let state = HandshakeComplete(transport_state);
@@ -436,7 +431,7 @@ impl Handshake<ClientInitTransportMode> {
 
 impl Handshake<ServerRecvVersion> {
     /// Create a new handshake server that can receive the version data.
-    pub fn new_server(
+    fn new_server(
         version: Version,
         psk: [u8; 32],
         private_key: Vec<u8>,
@@ -454,7 +449,7 @@ impl Handshake<ServerRecvVersion> {
 
     /// Receive the version data from the client and validate it before
     /// advancing to the next client state.
-    pub fn recv_client_version(self, recv_buf: &mut [u8]) -> Result<Handshake<ServerSendVersion>> {
+    fn recv_client_version(self, recv_buf: &mut [u8]) -> Result<Handshake<ServerSendVersion>> {
         let (_n, client_version) = Version::from_bytes(recv_buf)?;
         if client_version.major() != self.base.version.major() {
             warn!("Received incompatible major version from handshake initiator");
@@ -475,7 +470,7 @@ impl Handshake<ServerRecvVersion> {
 impl Handshake<ServerSendVersion> {
     /// Send server version data to the client and advance to the next server
     /// state.
-    pub fn send_server_version(
+    fn send_server_version(
         self,
         send_buf: &mut [u8],
     ) -> Result<Handshake<ServerBuildNoiseStateMachine>> {
@@ -493,8 +488,7 @@ impl Handshake<ServerSendVersion> {
 impl Handshake<ServerBuildNoiseStateMachine> {
     /// Build the Noise handshake state machine for the server with the PSK and
     /// private key.
-    // TODO: Make this function private once `basic` example is correct.
-    pub fn build_server_noise_state_machine(self) -> Result<Handshake<ServerRecvEphemeralKey>> {
+    fn build_server_noise_state_machine(self) -> Result<Handshake<ServerRecvEphemeralKey>> {
         let noise_state_machine = build_noise_state_machine(
             Role::Responder,
             self.base.psk,
@@ -513,8 +507,7 @@ impl Handshake<ServerBuildNoiseStateMachine> {
 
 impl Handshake<ServerRecvEphemeralKey> {
     /// Receive the ephemeral key from the client and advance to the next server state.
-    // TODO: Make this function private once `basic` example is correct.
-    pub fn recv_client_ephemeral_key(
+    fn recv_client_ephemeral_key(
         mut self,
         recv_buf: &mut [u8],
     ) -> Result<Handshake<ServerSendEphemeralAndStaticKey>> {
@@ -536,8 +529,7 @@ impl Handshake<ServerRecvEphemeralKey> {
 impl Handshake<ServerSendEphemeralAndStaticKey> {
     /// Send the ephemeral and static keys to the client and advance to
     /// the next server state.
-    // TODO: Make this function private once `basic` example is correct.
-    pub fn send_server_ephemeral_and_static_key(
+    fn send_server_ephemeral_and_static_key(
         mut self,
         send_buf: &mut [u8],
     ) -> Result<Handshake<ServerRecvStaticKey>> {
@@ -561,8 +553,7 @@ impl Handshake<ServerSendEphemeralAndStaticKey> {
 impl Handshake<ServerRecvStaticKey> {
     /// Receive the static key from the clientand advance to the next server
     /// state.
-    // TODO: Make this function private once `basic` example is correct.
-    pub fn recv_client_static_key(
+    fn recv_client_static_key(
         mut self,
         recv_buf: &mut [u8],
     ) -> Result<Handshake<ServerInitTransportMode>> {
@@ -590,8 +581,7 @@ impl Handshake<ServerRecvStaticKey> {
 
 impl Handshake<ServerInitTransportMode> {
     /// Complete the server handshake by initialising the encrypted transport.
-    // TODO: Make this function private once `basic` example is correct.
-    pub fn init_server_transport_mode(self) -> Result<Handshake<HandshakeComplete>> {
+    fn init_server_transport_mode(self) -> Result<Handshake<HandshakeComplete>> {
         let transport_state = self.state.0.into_transport_mode()?;
 
         let state = HandshakeComplete(transport_state);
@@ -607,8 +597,7 @@ impl Handshake<ServerInitTransportMode> {
 impl Handshake<HandshakeComplete> {
     /// Read an encrypted message from the receive buffer, decrypt and write it
     /// to the message buffer - returning the byte size of the written payload.
-    // TODO: Make this function private once `basic` example is correct.
-    pub fn read_noise_message(&mut self, recv_buf: &[u8], msg: &mut [u8]) -> Result<usize> {
+    fn read_noise_message(&mut self, recv_buf: &[u8], msg: &mut [u8]) -> Result<usize> {
         let len = self.state.0.read_message(recv_buf, msg)?;
 
         Ok(len)
@@ -683,8 +672,7 @@ impl Handshake<HandshakeComplete> {
 
     /// Encrypt and write a message to the send buffer, returning the byte size
     /// of the written payload.
-    // TODO: Make this function private once `basic` example is correct.
-    pub fn write_noise_message(&mut self, msg: &[u8], send_buf: &mut [u8]) -> Result<usize> {
+    fn write_noise_message(&mut self, msg: &[u8], send_buf: &mut [u8]) -> Result<usize> {
         let len = self.state.0.write_message(msg, send_buf)?;
 
         Ok(len)
