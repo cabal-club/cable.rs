@@ -49,7 +49,7 @@ fn main() {
 }
 
 fn run_client() -> Result<()> {
-    let (version, psk, private_key) = setup();
+    let (version, psk, private_key) = setup()?;
 
     println!("Connecting to TCP server on 127.0.0.1:9999");
     let mut stream = TcpStream::connect("127.0.0.1:9999")?;
@@ -74,7 +74,7 @@ fn run_client() -> Result<()> {
 }
 
 fn run_server() -> Result<()> {
-    let (version, psk, private_key) = setup();
+    let (version, psk, private_key) = setup()?;
 
     // Deploy a TCP listener.
     let listener = TcpListener::bind("127.0.0.1:9999")?;
