@@ -654,11 +654,21 @@ impl Handshake<HandshakeComplete> {
     /// This method essentially reads two messages from the stream: the
     /// unencrypted message length specifier (4 bytes) followed by the
     /// encrypted message payload.
+    ///
+    /// An `Ok` return value containing a `Vec` of zero length and capacity
+    /// indicates receipt of an end-of-stream marker.
     pub fn read_message_from_stream<T: Read + Write>(&mut self, stream: &mut T) -> Result<Vec<u8>> {
         // Read four bytes describing the length of the incoming message.
         let mut len_buf = [0; 4];
         stream.read_exact(&mut len_buf)?;
         let msg_len = u32::from_le_bytes(len_buf);
+
+        if msg_len == 0 {
+            // Return a 0 capacity vector to indicate end-of-stream.
+            //
+            // This does not result in an allocation.
+            return Ok(Vec::with_capacity(0));
+        }
 
         // Read the encrypted bytes of the incoming message.
         let mut recv_buf = vec![0u8; msg_len as usize];
@@ -676,6 +686,9 @@ impl Handshake<HandshakeComplete> {
     /// This method essentially reads two messages from the stream: the
     /// unencrypted message length specifier (4 bytes) followed by the
     /// encrypted message payload.
+    ///
+    /// An `Ok` return value containing a `Vec` of zero length and capacity
+    /// indicates receipt of an end-of-stream marker.
     pub async fn read_message_from_async_stream<T: AsyncRead + AsyncWrite + Unpin>(
         &mut self,
         stream: &mut T,
@@ -684,6 +697,13 @@ impl Handshake<HandshakeComplete> {
         let mut len_buf = [0; 4];
         stream.read_exact(&mut len_buf).await?;
         let msg_len = u32::from_le_bytes(len_buf);
+
+        if msg_len == 0 {
+            // Return a 0 capacity vector to indicate end-of-stream.
+            //
+            // This does not result in an allocation.
+            return Ok(Vec::with_capacity(0));
+        }
 
         // Read the encrypted bytes of the incoming message.
         let mut recv_buf = vec![0u8; msg_len as usize];
@@ -766,6 +786,9 @@ impl Handshake<HandshakeComplete> {
         stream.write_all(encrypted_msg_len)?;
         stream.write_all(&encrypted_msg)?;
 
+        // End-of-stream marker (message with length of 0).
+        stream.write_all(&[0, 0, 0, 0])?;
+
         Ok(bytes_written)
     }
 
@@ -786,6 +809,9 @@ impl Handshake<HandshakeComplete> {
 
         stream.write_all(encrypted_msg_len).await?;
         stream.write_all(&encrypted_msg).await?;
+
+        // End-of-stream marker (message with length of 0).
+        stream.write_all(&[0, 0, 0, 0]).await?;
 
         Ok(bytes_written)
     }
