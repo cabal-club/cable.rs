@@ -52,6 +52,12 @@ async fn client_handshake() -> Result<()> {
         .await?;
     assert_eq!(msg, MSG_2);
 
+    // Read end-of-stream marker.
+    let msg = encrypted
+        .read_message_from_async_stream(&mut stream)
+        .await?;
+    assert!(msg.is_empty());
+
     Ok(())
 }
 
@@ -72,6 +78,12 @@ async fn server_handshake() -> Result<()> {
         .read_message_from_async_stream(&mut stream)
         .await?;
     assert_eq!(msg, MSG_1);
+
+    // Read end-of-stream marker.
+    let msg = encrypted
+        .read_message_from_async_stream(&mut stream)
+        .await?;
+    assert!(msg.is_empty());
 
     // Write a long encrypted message.
     encrypted
