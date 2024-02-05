@@ -8,7 +8,7 @@ SPDX-License-Identifier: CC0-1.0
 
 `cable_handshake` is an implementation of the [Cable Handshake Protocol](https://github.com/cabal-club/cable/blob/main/handshake.md) and uses the [`snow`](https://crates.io/crates/snow) implementation of the Noise Protocol Framework.
 
-This implementation conforms to version `1.0-draft5` of the protocol specification and thus includes automatic message (de)fragmentation when payloads exceed 65519 bytes.
+This implementation conforms to version `1.0-draft7` of the protocol specification and thus includes automatic message (de)fragmentation when payloads exceed 65519 bytes.
 
 Support is included for asynchronous streams, though currently only for `async_std` (the provided stream must implement `futures_util::io::{AsyncRead, AsyncWrite}`). The underlying handshake itself is always synchronous.
 
