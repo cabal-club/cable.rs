@@ -59,6 +59,8 @@ fn main() {
         }
         _ => help(),
     }
+
+    eprintln!("Stream closed");
 }
 
 fn run_client<T: Read + Write>(stream: &mut T, psk: [u8; 32], msg: &str) -> Result<()> {
@@ -66,16 +68,25 @@ fn run_client<T: Read + Write>(stream: &mut T, psk: [u8; 32], msg: &str) -> Resu
 
     let mut encrypted = handshake::client(stream, version, psk, private_key)?;
 
-    // Write message to stdout.
+    // Write message.
     encrypted.write_message_to_stream(stream, msg.as_bytes())?;
+    eprintln!("Sent message");
 
-    // Read a short encrypted message.
+    // Read message.
     let received_msg = encrypted.read_message_from_stream(stream)?;
-
     eprintln!(
         "Received message: {}",
         std::str::from_utf8(&received_msg).unwrap()
     );
+
+    // Handle end-of-stream marker.
+    if encrypted.read_message_from_stream(stream)?.is_empty() {
+        eprintln!("Received end-of-stream marker");
+
+        // Write zero-length message (end-of-stream marker).
+        encrypted.write_eos_marker_to_stream(stream)?;
+        eprintln!("Sent end-of-stream marker");
+    }
 
     Ok(())
 }
@@ -85,16 +96,25 @@ fn run_server<T: Read + Write>(stream: &mut T, psk: [u8; 32], msg: &str) -> Resu
 
     let mut encrypted = handshake::server(stream, version, psk, private_key)?;
 
-    // Read a short encrypted message.
+    // Read message.
     let received_msg = encrypted.read_message_from_stream(stream)?;
-
     eprintln!(
         "Received message: {}",
         std::str::from_utf8(&received_msg).unwrap()
     );
 
-    // Write message to stdout.
+    // Write message.
     encrypted.write_message_to_stream(stream, msg.as_bytes())?;
+    eprintln!("Sent message");
+
+    // Write zero-length message (end-of-stream marker).
+    encrypted.write_eos_marker_to_stream(stream)?;
+    eprintln!("Sent end-of-stream marker");
+
+    // Handle end-of-stream marker.
+    if encrypted.read_message_from_stream(stream)?.is_empty() {
+        eprintln!("Received end-of-stream marker");
+    }
 
     Ok(())
 }
