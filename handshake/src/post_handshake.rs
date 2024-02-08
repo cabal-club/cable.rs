@@ -1,3 +1,10 @@
+// SPDX-FileCopyrightText: 2024 the cabal-club authors
+//
+// SPDX-License-Identifier: LGPL-3.0-or-later
+
+//! Post-handshake operations, including reading and writing of messages
+//! to and from synchronous and asynchronous streams.
+
 use std::{
     cmp,
     io::{Read, Write},
