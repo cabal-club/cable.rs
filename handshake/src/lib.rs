@@ -786,10 +786,15 @@ impl Handshake<HandshakeComplete> {
         stream.write_all(encrypted_msg_len)?;
         stream.write_all(&encrypted_msg)?;
 
+        Ok(bytes_written)
+    }
+
+    /// Write an end-of-stream marker (zero-length message) to the stream.
+    pub fn write_eos_marker_to_stream<T: Read + Write>(&mut self, stream: &mut T) -> Result<()> {
         // End-of-stream marker (message with length of 0).
         stream.write_all(&[0, 0, 0, 0])?;
 
-        Ok(bytes_written)
+        Ok(())
     }
 
     /// Encrypt and write a message to the asynchronous stream, returning the
@@ -810,10 +815,19 @@ impl Handshake<HandshakeComplete> {
         stream.write_all(encrypted_msg_len).await?;
         stream.write_all(&encrypted_msg).await?;
 
+        Ok(bytes_written)
+    }
+
+    /// Write an end-of-stream marker (zero-length message) to the asynchronous
+    /// stream.
+    pub async fn write_eos_marker_to_async_stream<T: AsyncRead + AsyncWrite + Unpin>(
+        &mut self,
+        stream: &mut T,
+    ) -> Result<()> {
         // End-of-stream marker (message with length of 0).
         stream.write_all(&[0, 0, 0, 0]).await?;
 
-        Ok(bytes_written)
+        Ok(())
     }
 
     /// Return the public key of the remote peer.
