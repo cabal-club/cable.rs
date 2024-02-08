@@ -67,15 +67,29 @@ async fn run_client() -> Result<()> {
     encrypted
         .write_message_to_async_stream(&mut stream, short_msg)
         .await?;
-
     println!("Sent message");
 
     // Read a long encrypted message.
     let long_msg = encrypted
         .read_message_from_async_stream(&mut stream)
         .await?;
+    // Only print the first nine bytes of the message.
+    println!("Received message: {:?}", &long_msg[..9]);
 
-    println!("Received message: {:?}", long_msg);
+    // Write zero-length message (end-of-stream marker).
+    encrypted
+        .write_eos_marker_to_async_stream(&mut stream)
+        .await?;
+    println!("Sent end-of-stream marker");
+
+    // Handle end-of-stream marker.
+    if encrypted
+        .read_message_from_async_stream(&mut stream)
+        .await?
+        .is_empty()
+    {
+        println!("Received end-of-stream marker");
+    }
 
     Ok(())
 }
@@ -99,9 +113,7 @@ async fn run_server() -> Result<()> {
     // Read a short encrypted message.
     let short_msg = encrypted
         .read_message_from_async_stream(&mut stream)
-        .await
-        .unwrap();
-
+        .await?;
     println!("Received message: {:?}", short_msg);
 
     // This message is more than 65535 bytes and will therefore be fragmented
@@ -111,10 +123,23 @@ async fn run_server() -> Result<()> {
     // Write a long encrypted message.
     encrypted
         .write_message_to_async_stream(&mut stream, &long_msg)
-        .await
-        .unwrap();
-
+        .await?;
     println!("Sent message");
+
+    // Handle end-of-stream marker.
+    if encrypted
+        .read_message_from_async_stream(&mut stream)
+        .await?
+        .is_empty()
+    {
+        println!("Received end-of-stream marker");
+    }
+
+    // Write zero-length message (end-of-stream marker).
+    encrypted
+        .write_eos_marker_to_async_stream(&mut stream)
+        .await?;
+    println!("Sent end-of-stream marker");
 
     Ok(())
 }

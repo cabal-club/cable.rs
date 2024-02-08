@@ -70,14 +70,21 @@ fn run_client() -> Result<()> {
     // Write a short encrypted message.
     let msg = b"An impeccably polite pangolin";
     encrypted.write_message_to_stream(&mut stream, msg)?;
-
     println!("Sent message");
 
     // Write a long encrypted message.
     let msg = [7; 70000];
     encrypted.write_message_to_stream(&mut stream, &msg)?;
-
     println!("Sent message");
+
+    // Write zero-length message (end-of-stream marker).
+    encrypted.write_eos_marker_to_stream(&mut stream)?;
+    println!("Sent end-of-stream marker");
+
+    // Handle end-of-stream marker.
+    if encrypted.read_message_from_stream(&mut stream)?.is_empty() {
+        println!("Received end-of-stream marker");
+    }
 
     Ok(())
 }
@@ -99,13 +106,21 @@ fn run_server() -> Result<()> {
 
         // Read a short encrypted message.
         let msg = encrypted.read_message_from_stream(&mut stream)?;
-
         println!("Received message: {:?}", msg);
 
         // Read a long encrypted message.
         let msg = encrypted.read_message_from_stream(&mut stream)?;
+        // Print the first nine bytes of the message.
+        println!("Received message: {:?}", &msg[..9]);
 
-        println!("Received message: {:?}", msg);
+        // Handle end-of-stream marker.
+        if encrypted.read_message_from_stream(&mut stream)?.is_empty() {
+            println!("Received end-of-stream marker");
+
+            // Write zero-length message (end-of-stream marker).
+            encrypted.write_eos_marker_to_stream(&mut stream)?;
+            println!("Sent end-of-stream marker");
+        }
     }
 
     Ok(())
