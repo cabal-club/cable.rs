@@ -54,14 +54,17 @@ fn sync_handshake_works() -> Result<()> {
             let msg = encrypted.read_message_from_stream(&mut stream).unwrap();
             assert_eq!(msg, msg_1);
 
-            // Read end-of-stream marker.
-            let msg = encrypted.read_message_from_stream(&mut stream).unwrap();
-            assert!(msg.is_empty());
-
             // Write a long encrypted message.
             encrypted
                 .write_message_to_stream(&mut stream, &msg_2)
                 .unwrap();
+
+            // Write end-of-stream marker.
+            encrypted.write_eos_marker_to_stream(&mut stream).unwrap();
+
+            // Read end-of-stream marker.
+            let eos_msg = encrypted.read_message_from_stream(&mut stream).unwrap();
+            assert!(eos_msg.is_empty());
 
             return;
         }
@@ -81,8 +84,11 @@ fn sync_handshake_works() -> Result<()> {
     assert_eq!(msg, msg_2);
 
     // Read end-of-stream marker.
-    let msg = encrypted.read_message_from_stream(&mut stream)?;
-    assert!(msg.is_empty());
+    let eos_msg = encrypted.read_message_from_stream(&mut stream)?;
+    assert!(eos_msg.is_empty());
+
+    // Write end-of-stream marker.
+    encrypted.write_eos_marker_to_stream(&mut stream)?;
 
     Ok(())
 }

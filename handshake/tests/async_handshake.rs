@@ -52,11 +52,16 @@ async fn client_handshake() -> Result<()> {
         .await?;
     assert_eq!(msg, MSG_2);
 
+    // Write end-of-stream marker.
+    encrypted
+        .write_eos_marker_to_async_stream(&mut stream)
+        .await?;
+
     // Read end-of-stream marker.
-    let msg = encrypted
+    let eos_msg = encrypted
         .read_message_from_async_stream(&mut stream)
         .await?;
-    assert!(msg.is_empty());
+    assert!(eos_msg.is_empty());
 
     Ok(())
 }
@@ -79,15 +84,20 @@ async fn server_handshake() -> Result<()> {
         .await?;
     assert_eq!(msg, MSG_1);
 
-    // Read end-of-stream marker.
-    let msg = encrypted
-        .read_message_from_async_stream(&mut stream)
-        .await?;
-    assert!(msg.is_empty());
-
     // Write a long encrypted message.
     encrypted
         .write_message_to_async_stream(&mut stream, &MSG_2)
+        .await?;
+
+    // Read end-of-stream marker.
+    let eos_msg = encrypted
+        .read_message_from_async_stream(&mut stream)
+        .await?;
+    assert!(eos_msg.is_empty());
+
+    // Write end-of-stream marker.
+    encrypted
+        .write_eos_marker_to_async_stream(&mut stream)
         .await?;
 
     Ok(())
