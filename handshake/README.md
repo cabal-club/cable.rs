@@ -12,6 +12,8 @@ This implementation conforms to version `1.0-draft7` of the protocol specificati
 
 Support is included for asynchronous streams, though currently only for `async_std` (the provided stream must implement `futures_util::io::{AsyncRead, AsyncWrite}`). The underlying handshake itself is always synchronous.
 
+Support is also included for writing end-of-stream markers, as defined by the specification. Receipt of an empty vector when reading from a stream indicates an end-of-stream marker.
+
 ## Example
 
 See `handshake/examples` for TCP, Unix socket and async examples.
@@ -52,6 +54,12 @@ if let Some(server_public_key) = client.get_remote_public_key() {
 let msg = client.read_message_from_stream(&mut stream)?;
 
 let bytes_written = client.write_message_to_stream(&mut stream, b"Elegant elaterids")?;
+
+client.write_eos_marker_to_stream(&mut stream)?;
+
+if client.read_message_from_stream(stream)?.is_empty() {
+    println!("Received end-of-stream marker");
+}
 ```
 
 Perform an asynchronous handshake as server (initiator):
@@ -66,6 +74,10 @@ let mut server = handshake::server(&mut stream, version, psk, private_key)?;
 let bytes_written = server.write_message_to_async_stream(&mut stream, b"Quizzical curculionids")?;
 
 let msg = server.read_message_from_async_stream(&mut stream)?;
+
+if client.read_message_from_stream(stream)?.is_empty() {
+    client.write_eos_marker_to_stream(stream)?;
+}
 ```
 
 ## Documentation
