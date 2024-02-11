@@ -121,9 +121,11 @@ cat hand | node examples/cli.js '31313131313131313131313131313131313131313131313
 ```
 
 ```
-c1ed0c03: responder ready!
-c1ed0c03: got "hi from rustland!"
-c1ed0c03: stream closed
+f3450e4e: responder ready!
+f3450e4e: got "hi from rustland!"
+f3450e4e: wrote msg
+f3450e4e: wrote eos
+f3450e4e: got eos
 ```
 
 Make a named FIFO pipe and run the Rust client in a second terminal:
@@ -134,6 +136,9 @@ cat shake | cargo run --example cli -- '11111111111111111111111111111111' 'initi
 ```
 
 ```
+Sent message
 Received message: greetings from nodeville!
+Received end-of-stream marker
+Sent end-of-stream marker
 Stream closed
 ```
