@@ -132,7 +132,7 @@ Make a named FIFO pipe and run the Rust client in a second terminal:
 
 ```
 mkfifo shake
-cat shake | cargo run --example cli -- '11111111111111111111111111111111' 'initiator' 'hi from rustland!' | nc 127.0.0.1 1234 > shake
+cat shake | cargo run --example cli -- 11111111111111111111111111111111 initiator 'hi from rustland!' | nc 127.0.0.1 1234 > shake
 ```
 
 ```
@@ -142,3 +142,7 @@ Received end-of-stream marker
 Sent end-of-stream marker
 Stream closed
 ```
+
+The message can also be supplied by passing a filepath:
+
+`cat shake | cargo run --example cli -- 11111111111111111111111111111111 initiator --file msg.txt | nc 127.0.0.1 1234 > shake`
