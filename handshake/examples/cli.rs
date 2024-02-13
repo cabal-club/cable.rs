@@ -116,7 +116,9 @@ fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
 
     let args_len = args.len();
-    if args_len != 4 | 5 {
+    // Print the help text and return if the number of supplied arguments is
+    // not 4 or 5.
+    if !(4..=5).contains(&args_len) {
         help();
         return Ok(());
     }
