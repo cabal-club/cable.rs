@@ -81,24 +81,24 @@ grep -q "got \"is enough to know.\"" $NODE_LOG
 
 echo '-> Exchanging long msg with Node.js as initiator'
 #-----------------------------------------------------------------------------#
-cat $RUST_FIFO | ./target/release/examples/cli 11111111111111111111111111111111 responder --file handshake/tests/interop/mushrooms.txt 2> $RUST_LOG | nc -l 1234 -w 2 > $RUST_FIFO &
+cat $RUST_FIFO | ./target/release/examples/cli 11111111111111111111111111111111 responder --file handshake/tests/interop/fungi.txt 2> $RUST_LOG | nc -l 1234 -w 2 > $RUST_FIFO &
 
 cd $NODE_DIR/cable-handshake.ts
-cat $NODE_FIFO | node dist/examples/cli.js 3131313131313131313131313131313131313131313131313131313131313131 initiator @$RUST_DIR/handshake/tests/interop/tao.txt 2> $NODE_LOG | nc 127.0.0.1 1234 -w 2 > $NODE_FIFO
+cat $NODE_FIFO | node dist/examples/cli.js 3131313131313131313131313131313131313131313131313131313131313131 initiator @$RUST_DIR/handshake/tests/interop/taoism.txt 2> $NODE_LOG | nc 127.0.0.1 1234 -w 2 > $NODE_FIFO
 
-grep -q "It is interesting to observe where different mushrooms love to dwell." $NODE_LOG
-grep -q "The Tao in its regular course does nothing" $RUST_LOG
+grep -q "Although often inconspicuous, fungi occur in every environment on Earth" $NODE_LOG
+grep -q "one must place their will in harmony with the natural way of the universe" $RUST_LOG
 
 
 echo '-> Exchanging long msg with Rust as initiator'
 #-----------------------------------------------------------------------------#
-cat $NODE_FIFO | node dist/examples/cli.js 3131313131313131313131313131313131313131313131313131313131313131 responder @$RUST_DIR/handshake/tests/interop/mushrooms.txt 2> $NODE_LOG | nc -l 1234 -w 2 > $NODE_FIFO &
+cat $NODE_FIFO | node dist/examples/cli.js 3131313131313131313131313131313131313131313131313131313131313131 responder @$RUST_DIR/handshake/tests/interop/fungi.txt 2> $NODE_LOG | nc -l 1234 -w 2 > $NODE_FIFO &
 
 cd $RUST_DIR
-cat $RUST_FIFO | ./target/release/examples/cli 11111111111111111111111111111111 initiator --file handshake/tests/interop/tao.txt 2> $RUST_LOG | nc 127.0.0.1 1234 -w 2 > $RUST_FIFO
+cat $RUST_FIFO | ./target/release/examples/cli 11111111111111111111111111111111 initiator --file handshake/tests/interop/taoism.txt 2> $RUST_LOG | nc 127.0.0.1 1234 -w 2 > $RUST_FIFO
 
-grep -q "The Mycelium is commonly called the spawn of mushrooms." $RUST_LOG
-grep -q "The Tao, considered as unchanging, has no name." $NODE_LOG
+grep -q "There appears to be electrical communication between fungi in word-like components" $RUST_LOG
+grep -q "Taoist cosmology is cyclic—the universe is seen as being in constant change" $NODE_LOG
 
 
 echo '-> Cleaning-up temporary files and directories'
