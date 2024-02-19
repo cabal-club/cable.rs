@@ -94,6 +94,12 @@ Run the test suite:
 
 `cargo test`
 
+Run the Rust-TypeScript handshake interoperability test script:
+
+`bash handshake/tests/interop/run.sh`
+
+NOTE: It is **highly recommended** to read the full contents of the script before executing.
+
 ## Benchmarks
 
 Simple benchmarks exist for the basic synchronous handshake (over Unix socket) and a synchronous handshake plus 10,000 messages read and written by each peer (also over a Unix socket).

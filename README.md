@@ -11,6 +11,7 @@ The `cable.rs` implementation is organised as a [workspace](https://doc.rust-lan
 - [cable](cable/) : Cable binary payload encoding and decoding (plus post and message types)
 - [cable_core](cable_core/) : Manager, in-memory store and stream implementations for creating cable peers
 - [desert](desert/) : Serialization and deserialization traits (vendored version; authored by substack)
+- [handshake](handshake/) : Cryptographic handshake and message exchange
 - [length_prefixed_stream](length_prefixed_stream/) : Decoder to convert a byte stream of varint length-encoded messages into a stream of chunks (vendored version; authored by substack)
 
 There is currently a single `cable.rs` chat client in the form of [cabin](https://github.com/cabal-club/cabin); a text-user interface (TUI) written in Rust.
