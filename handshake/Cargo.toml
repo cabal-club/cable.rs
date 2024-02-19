@@ -1,0 +1,26 @@
+[package]
+name = "cable_handshake"
+version = "0.1.0"
+authors = ["glyph <glyph@mycelial.technology>"]
+description = "Cable handshake protocol implementation"
+edition = "2021"
+
+[dependencies]
+desert = { path = "../desert" }
+futures-util = { version = "0.3.30", features = ["io"] }
+log = "0.4.20"
+snow = "0.9.4"
+
+[dev-dependencies]
+async-std = { version = "1.12.0", features = ["attributes"] }
+criterion = { version = "0.5.1", features = ["html_reports"] }
+io-streams = "0.16.0"
+sodiumoxide = "0.2.7"
+
+[[bench]]
+name = "handshake_sync"
+harness = false
+
+[[bench]]
+name = "message_sync"
+harness = false

@@ -20,6 +20,7 @@ pub use error::*;
 pub trait ToBytes {
     /// Serialize into a newly-allocated byte vector.
     fn to_bytes(&self) -> Result<Vec<u8>, Error>;
+
     /// Serialize into an existing mutable byte slice.
     /// The usize Result contains how many bytes were written to `dst`.
     fn write_bytes(&self, dst: &mut [u8]) -> Result<usize, Error> {
@@ -40,6 +41,7 @@ pub trait ToBytes {
 pub trait ToBytesBE {
     /// Serialize into a newly-allocated byte vector in big endian.
     fn to_bytes_be(&self) -> Result<Vec<u8>, Error>;
+
     /// Serialize into an existing mutable byte slice in big endian.
     /// The usize Result contains how many bytes were written to `dst`.
     fn write_bytes_be(&self, dst: &mut [u8]) -> Result<usize, Error> {
@@ -60,6 +62,7 @@ pub trait ToBytesBE {
 pub trait ToBytesLE {
     /// Serialize into a newly-allocated byte vector in little endian.
     fn to_bytes_le(&self) -> Result<Vec<u8>, Error>;
+
     /// Serialize into an existing mutable byte slice in little endian.
     /// The usize Result contains how many bytes were written to `dst`.
     fn write_bytes_le(&self, dst: &mut [u8]) -> Result<usize, Error> {
@@ -356,11 +359,11 @@ impl ToBytesLE for bool {
 impl FromBytes for bool {
     fn from_bytes(src: &[u8]) -> Result<(usize, Self), Error> {
         if src.is_empty() {
-            return DesertErrorKind::SrcInsufficient {
+            DesertErrorKind::SrcInsufficient {
                 provided: src.len(),
                 required: 1,
             }
-            .raise();
+            .raise()
         } else {
             Ok((1, src[0] != 0))
         }
