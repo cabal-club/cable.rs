@@ -1,10 +1,25 @@
 #!/bin/bash
 
-# Build the CLI example for the Rust and TypeScript implementations.
+# Build the CLI example for the Rust implementation.
+# Clone and build the TypeScript implementation.
 # Then exchange short and long messages between them.
-#
+
 # NOTE: Script should be executed from the cable.rs crate root directory.
+
+# Execute with bash:
 #
+# bash handshake/tests/interop/run.sh
+
+# Expected output:
+#
+# -> Building Rust implementation
+# -> Installing TypeScript implementation
+# -> Exchanging short msg with Node.js as initiator
+# -> Exchanging short msg with Rust as initiator
+# -> Exchanging long msg with Node.js as initiator
+# -> Exchanging long msg with Rust as initiator
+# -> Cleaning-up temporary files and directories
+
 # Requirement versions used for initial testing:
 #
 # cargo 1.73.0
@@ -27,18 +42,18 @@ mkfifo -m 600 "$NODE_FIFO"
 
 echo '-> Building Rust implementation'
 #-----------------------------------------------------------------------------#
-cargo build --release --examples > /dev/null
+cargo build --release --examples &> /dev/null
 
 
 echo '-> Installing TypeScript implementation'
 #-----------------------------------------------------------------------------#
 cd $NODE_DIR
-if [[ ! -d cable-handshake.ts ]]; then git clone https://github.com/cabal-club/cable-handshake.ts; fi
+if [[ ! -d cable-handshake.ts ]]; then git clone https://github.com/cabal-club/cable-handshake.ts &> /dev/null; fi
 cd cable-handshake.ts
 source ~/.nvm/nvm.sh
-nvm use node > /dev/null
-npm install > /dev/null
-npm run build > /dev/null
+nvm use node &> /dev/null
+npm install &> /dev/null
+npm run build &> /dev/null
 cd $RUST_DIR
 
 
