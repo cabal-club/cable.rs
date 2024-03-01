@@ -4,7 +4,7 @@ SPDX-FileCopyrightText: 2024 the cabal-club authors
 SPDX-License-Identifier: CC0-1.0
 -->
 
-# cable-handshake.rs
+# cable_handshake.rs
 
 `cable_handshake` is an implementation of the [Cable Handshake Protocol](https://github.com/cabal-club/cable/blob/main/handshake.md) and uses the [`snow`](https://crates.io/crates/snow) implementation of the Noise Protocol Framework.
 
